@@ -1,0 +1,140 @@
+# Temporary / local files
+tmp/
+
+# ----- Secrets and credentials -----
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
+*.csr
+*.env
+.env
+.env.*
+!.env.example
+*_rsa
+*_rsa.pub
+*_ed25519
+*_ed25519.pub
+*_ecdsa
+*_ecdsa.pub
+*.vault
+vault.yaml
+vault.yml
+secrets.yaml
+secrets.yml
+*secret*
+*credential*
+*password*
+kubeconfig
+*.kubeconfig
+
+# ----- Large binaries / disk images -----
+*.iso
+*.img
+*.bin
+*.dmg
+*.raw
+*.qcow2
+*.vmdk
+*.vdi
+*.ova
+*.ovf
+
+# ----- Node.js -----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+.pnp.*
+.pnp.js
+package-lock.json
+yarn.lock
+.node_repl_history
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ----- Terraform -----
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+*.tfvars
+!*.tfvars.example
+.terraformrc
+terraform.rc
+crash.log
+
+# ----- Ansible -----
+*.retry
+.vault_pass
+vault_pass.txt
+
+# ----- Docker -----
+.dockerignore
+
+# ----- Logs and databases -----
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# ----- macOS -----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# ----- Linux -----
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ----- Windows -----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ----- Editors -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+.project
+.classpath
+.settings/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
