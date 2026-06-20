@@ -27,3 +27,9 @@
 
     - role: docker_gpu
       tags: docker_gpu
+
+    # dual_node: run against both nodes simultaneously to set up CX-7 networking,
+    # SSH key exchange, and NCCL build. Requires 2+ hosts in the target group.
+    # ansible-playbook site.yml --tags dual_node
+    - role: dual_node
+      tags: dual_node

@@ -1,0 +1,121 @@
+---
+# -------------------------------------------------------------------------
+# CX-7 network interface configuration
+# -------------------------------------------------------------------------
+- name: Write netplan config for CX-7 interfaces (link-local)
+  ansible.builtin.copy:
+    dest: /etc/netplan/40-cx7.yaml
+    content: |
+      network:
+        version: 2
+        ethernets:
+          enp1s0f0np0:
+            link-local: [ ipv4 ]
+          enp1s0f1np1:
+            link-local: [ ipv4 ]
+    owner: root
+    group: root
+    mode: '0600'
+  notify: apply netplan
+
+- name: Flush handlers (apply netplan if changed)
+  ansible.builtin.meta: flush_handlers
+
+# -------------------------------------------------------------------------
+# Inter-node SSH key exchange
+# -------------------------------------------------------------------------
+- name: Check if inter-node SSH keypair exists
+  ansible.builtin.stat:
+    path: "/home/automation/.ssh/id_ed25519"
+  register: internode_key
+
+- name: Generate inter-node SSH keypair
+  ansible.builtin.command:
+    cmd: "ssh-keygen -t ed25519 -N '' -f /home/automation/.ssh/id_ed25519"
+  when: not internode_key.stat.exists
+  become_user: "automation"
+
+- name: Read this node's public key
+  ansible.builtin.slurp:
+    src: "/home/automation/.ssh/id_ed25519.pub"
+  register: node_pubkey
+
+- name: Authorize all node public keys on this node
+  ansible.posix.authorized_key:
+    user: "automation"
+    key: "{{ hostvars[item]['node_pubkey']['content'] | b64decode }}"
+    state: present
+  loop: "{{ groups[target | default('gb10')] }}"
+  when: hostvars[item]['node_pubkey'] is defined
+
+- name: Disable host key checking for link-local addresses (mpirun)
+  ansible.builtin.blockinfile:
+    path: /home/automation/.ssh/config
+    create: yes
+    owner: automation
+    group: automation
+    mode: '0600'
+    marker: "# {mark} ANSIBLE MANAGED - link-local StrictHostKeyChecking"
+    block: |
+      Host 169.254.*
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+
+# -------------------------------------------------------------------------
+# NCCL and MPI (pre-built apt packages already include SM_121 / Blackwell)
+# -------------------------------------------------------------------------
+- name: Install NCCL dev headers and MPI
+  ansible.builtin.apt:
+    name:
+      - libnccl-dev
+      - libopenmpi-dev
+      - git
+    state: present
+
+# -------------------------------------------------------------------------
+# Build NCCL tests (links against system libnccl)
+# -------------------------------------------------------------------------
+- name: Check if nccl-tests are already built
+  ansible.builtin.stat:
+    path: "/home/automation/nccl-tests/build/all_gather_perf"
+  register: nccl_tests_built
+
+- name: Clone nccl-tests
+  ansible.builtin.git:
+    repo: https://github.com/NVIDIA/nccl-tests.git
+    dest: "/home/automation/nccl-tests"
+    depth: 1
+  when: not nccl_tests_built.stat.exists
+  become_user: "automation"
+
+- name: Build nccl-tests
+  ansible.builtin.command:
+    cmd: >
+      make -j MPI=1
+      CUDA_HOME=/usr/local/cuda
+      MPI_HOME=/usr/lib/aarch64-linux-gnu/openmpi
+      NCCL_HOME=/usr
+    chdir: "/home/automation/nccl-tests"
+  when: not nccl_tests_built.stat.exists
+  become_user: "automation"
+
+# -------------------------------------------------------------------------
+# NCCL environment variables (written to profile.d for convenience)
+# -------------------------------------------------------------------------
+- name: Write NCCL environment profile
+  ansible.builtin.copy:
+    dest: /etc/profile.d/nccl.sh
+    content: |
+      # NCCL environment for dual GB10 / DGX Spark multi-node setup
+      export CUDA_HOME="/usr/local/cuda"
+      export MPI_HOME="/usr/lib/aarch64-linux-gnu/openmpi"
+      export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${MPI_HOME}/lib:${LD_LIBRARY_PATH}"
+
+      # Set these to the active CX-7 interface before running mpirun:
+      # export CX7_IFACE=enp1s0f1np1
+      # export NCCL_SOCKET_IFNAME=$CX7_IFACE
+      # export UCX_NET_DEVICES=$CX7_IFACE
+      # export OMPI_MCA_btl_tcp_if_include=$CX7_IFACE
+    owner: root
+    group: root
+    mode: '0644'

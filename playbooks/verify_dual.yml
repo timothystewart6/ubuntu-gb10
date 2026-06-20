@@ -1,0 +1,161 @@
+---
+# Dual-node verification playbook
+# Read-only checks - safe to run at any time.
+#
+# Usage (run against both nodes):
+#   ansible-playbook verify_dual.yml \
+#     -i <ip1>,<ip2>, -e target=all \
+#     --private-key ~/.ssh/automation_ed25519
+#
+# Example:
+#   ansible-playbook verify_dual.yml \
+#     -i 192.168.10.66,192.168.10.67, -e target=all \
+#     --private-key ~/.ssh/automation_ed25519
+
+- name: GB10 dual-node verification
+  hosts: "{{ target | default('gb10') }}"
+  gather_facts: false
+  become: true
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # CX-7 tooling
+    # -------------------------------------------------------------------------
+    - name: Check ibdev2netdev is available (requires DOCA-OFED)
+      ansible.builtin.command: which ibdev2netdev
+      register: ibdev2netdev_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report ibdev2netdev
+      ansible.builtin.debug:
+        msg: "ibdev2netdev: {{ ibdev2netdev_check.stdout if ibdev2netdev_check.rc == 0 else 'not available (DOCA-OFED not installed)' }}"
+
+    - name: Run ibdev2netdev (if available)
+      ansible.builtin.command: ibdev2netdev
+      register: ibdev2netdev_out
+      changed_when: false
+      when: ibdev2netdev_check.rc == 0
+
+    - name: Report CX-7 port mapping
+      ansible.builtin.debug:
+        msg: "CX-7 ports: {{ ibdev2netdev_out.stdout }}"
+      when: ibdev2netdev_check.rc == 0
+
+    - name: Check mlx5 kernel module is loaded
+      ansible.builtin.command: lsmod
+      register: lsmod_out
+      changed_when: false
+
+    - name: Assert mlx5_ib module is loaded
+      ansible.builtin.assert:
+        that: "'mlx5_ib' in lsmod_out.stdout"
+        fail_msg: "mlx5_ib module not loaded - CX-7 not available"
+        success_msg: "mlx5_ib: loaded"
+
+    # -------------------------------------------------------------------------
+    # CX-7 link-local IP
+    # -------------------------------------------------------------------------
+    - name: Get enp1s0f0np0 link-local IP
+      ansible.builtin.shell:
+        cmd: ip -4 addr show enp1s0f0np0 | awk '/169\.254/{print $2}'
+      register: cx7_ip
+      changed_when: false
+
+    - name: Assert CX-7 primary port has link-local IP
+      ansible.builtin.assert:
+        that: cx7_ip.stdout | length > 0
+        fail_msg: "enp1s0f0np0 has no link-local IP - netplan not applied or cable unplugged"
+        success_msg: "CX-7 link-local IP: {{ cx7_ip.stdout }}"
+
+    # -------------------------------------------------------------------------
+    # NCCL runtime
+    # -------------------------------------------------------------------------
+    - name: Check libnccl2 is installed
+      ansible.builtin.command: dpkg-query -W -f='${Status}' libnccl2
+      register: libnccl2_check
+      changed_when: false
+
+    - name: Assert libnccl2 is installed
+      ansible.builtin.assert:
+        that: "'install ok installed' in libnccl2_check.stdout"
+        fail_msg: "libnccl2 is not installed"
+        success_msg: "libnccl2: installed"
+
+    - name: Get libnccl2 version
+      ansible.builtin.command: dpkg-query -W -f='${Version}' libnccl2
+      register: libnccl2_version
+      changed_when: false
+
+    - name: Report NCCL version
+      ansible.builtin.debug:
+        msg: "libnccl2: {{ libnccl2_version.stdout }}"
+
+    # -------------------------------------------------------------------------
+    # nccl-tests binary
+    # -------------------------------------------------------------------------
+    - name: Check all_gather_perf binary exists
+      ansible.builtin.stat:
+        path: /home/automation/nccl-tests/build/all_gather_perf
+      register: nccl_tests_bin
+
+    - name: Assert nccl-tests are built
+      ansible.builtin.assert:
+        that: nccl_tests_bin.stat.exists
+        fail_msg: "nccl-tests not built - run site.yml with --tags dual_node"
+        success_msg: "nccl-tests: present"
+
+    # -------------------------------------------------------------------------
+    # Inter-node SSH keypair
+    # -------------------------------------------------------------------------
+    - name: Check inter-node SSH keypair exists
+      ansible.builtin.stat:
+        path: /home/automation/.ssh/id_ed25519
+      register: internode_key
+
+    - name: Assert inter-node SSH keypair exists
+      ansible.builtin.assert:
+        that: internode_key.stat.exists
+        fail_msg: "Inter-node SSH keypair missing - run site.yml with --tags dual_node"
+        success_msg: "Inter-node SSH keypair: present"
+
+    # -------------------------------------------------------------------------
+    # SSH config for link-local
+    # -------------------------------------------------------------------------
+    - name: Check SSH config has link-local StrictHostKeyChecking=no
+      ansible.builtin.command:
+        cmd: grep -c "169.254" /home/automation/.ssh/config
+      register: ssh_config_check
+      changed_when: false
+      failed_when: false
+
+    - name: Assert SSH config allows link-local connections
+      ansible.builtin.assert:
+        that: ssh_config_check.rc == 0 and ssh_config_check.stdout | int > 0
+        fail_msg: "SSH config missing 169.254.* StrictHostKeyChecking=no entry"
+        success_msg: "SSH config: link-local StrictHostKeyChecking=no present"
+
+    # -------------------------------------------------------------------------
+    # NCCL profile.d
+    # -------------------------------------------------------------------------
+    - name: Check NCCL profile.d script exists
+      ansible.builtin.stat:
+        path: /etc/profile.d/nccl.sh
+      register: nccl_profile
+
+    - name: Assert NCCL profile.d script exists
+      ansible.builtin.assert:
+        that: nccl_profile.stat.exists
+        fail_msg: "/etc/profile.d/nccl.sh missing"
+        success_msg: "/etc/profile.d/nccl.sh: present"
+
+    # -------------------------------------------------------------------------
+    # Summary
+    # -------------------------------------------------------------------------
+    - name: Report dual-node status
+      ansible.builtin.debug:
+        msg: >-
+          Dual-node ready: CX-7={{ cx7_ip.stdout }}
+          NCCL={{ libnccl2_version.stdout }}
+          nccl-tests=present

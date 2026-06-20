@@ -1,0 +1,5 @@
+---
+# CX-7 interface names (use enp1s0f* only - ignore enP2p1s0f* aliases)
+cx7_interfaces:
+  - enp1s0f0np0
+  - enp1s0f1np1

@@ -103,3 +103,16 @@
 - name: Reset failed systemd units after nvsm removal
   ansible.builtin.command: systemctl reset-failed
   changed_when: false
+
+- name: Install CX-7 / RDMA userspace tools
+  ansible.builtin.apt:
+    name:
+      - mlnx-tools
+      - infiniband-diags
+    state: present
+
+- name: Install NCCL runtime
+  ansible.builtin.apt:
+    name:
+      - libnccl2
+    state: present

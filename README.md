@@ -73,6 +73,7 @@ may trail the DGX Spark Founders Edition by a release or two.
 | [docs/04-doca-ofed.md](docs/04-doca-ofed.md)           | ConnectX-7 NIC + DOCA-OFED drivers        |
 | [docs/05-verify.md](docs/05-verify.md)                 | Post-install verification steps           |
 | [docs/06-optimizations.md](docs/06-optimizations.md)   | Post-install performance tuning           |
+| [docs/07-dual-node.md](docs/07-dual-node.md)           | Dual-node NCCL + CX-7 interconnect setup  |
 
 ## Quick-Start Order
 
@@ -82,6 +83,7 @@ may trail the DGX Spark Founders Edition by a release or two.
 4. (Optional) ConnectX-7 DOCA-OFED drivers - see [docs/04-doca-ofed.md](docs/04-doca-ofed.md)
 5. Verify everything works - see [docs/05-verify.md](docs/05-verify.md)
 6. (Optional) Performance tuning - see [docs/06-optimizations.md](docs/06-optimizations.md)
+7. (Optional) Dual-node NCCL setup - see [docs/07-dual-node.md](docs/07-dual-node.md)
 
 ## Ansible Automation
 
