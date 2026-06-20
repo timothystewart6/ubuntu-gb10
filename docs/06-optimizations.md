@@ -140,6 +140,29 @@ sudo sysctl -p /etc/sysctl.d/99-gb10.conf
 
 ---
 
+## Firmware Updates (fwupd)
+
+NVIDIA uses `fwupd` to distribute platform firmware updates for GB10 systems
+(UEFI, embedded controllers, and related components). Install and run it after
+the initial NVIDIA stack is set up:
+
+```bash
+sudo apt install -y fwupd
+sudo fwupdmgr refresh
+sudo fwupdmgr get-updates
+```
+
+If updates are available:
+
+```bash
+sudo fwupdmgr update
+```
+
+Reboot after applying any firmware updates. Re-run `fwupdmgr get-updates` after
+each NVIDIA driver or platform package upgrade to catch new firmware releases.
+
+---
+
 ## Page Cache Flush (before large model loads)
 
 On UMA systems, the GPU and CPU share the same memory pool. If a CUDA workload

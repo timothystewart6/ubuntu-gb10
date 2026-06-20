@@ -258,11 +258,15 @@ ping -c 3 8.8.8.8
 Run these together - they are safe to chain:
 
 ```bash
-sudo apt update && sudo apt upgrade -y && sudo apt purge -y unattended-upgrades
+sudo apt update
+sudo apt upgrade -y
+sudo apt dist-upgrade -y
+sudo apt purge -y unattended-upgrades
 ```
 
-Automatic background upgrades are disruptive on a GPU server. Purging
-`unattended-upgrades` prevents surprise kernel or driver updates mid-session.
+`dist-upgrade` handles kernel transitions and dependency changes that plain
+`upgrade` skips. Purging `unattended-upgrades` prevents surprise kernel or
+driver updates mid-session.
 
 ### Grant passwordless sudo (recommended for automation)
 
