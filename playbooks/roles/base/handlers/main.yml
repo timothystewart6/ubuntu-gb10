@@ -1,0 +1,6 @@
+---
+- name: reboot for firmware
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+    post_reboot_delay: 30
+    msg: "Rebooting after firmware updates"

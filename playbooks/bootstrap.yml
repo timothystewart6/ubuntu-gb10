@@ -1,0 +1,46 @@
+---
+# bootstrap.yml - Run ONCE as the install user (e.g. serveradmin) before site.yml.
+# Creates the automation account and deploys its SSH key so site.yml can connect.
+#
+# Usage:
+#   ansible-playbook bootstrap.yml -i <ip-or-hostname>, \
+#     -u serveradmin --ask-pass --ask-become-pass
+#
+# The comma after the host is required when passing a bare host (no inventory file).
+
+- name: Bootstrap automation user
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    automation_user: automation
+    automation_pubkey: "{{ lookup('file', automation_pubkey_file | default('~/.ssh/id_ed25519.pub')) }}"
+    # Override: ansible-playbook bootstrap.yml -e automation_pubkey_file=~/.ssh/yourkey.pub
+
+  tasks:
+    - name: Wait for SSH to be available
+      ansible.builtin.wait_for_connection:
+        timeout: 60
+
+    - name: Create automation user
+      ansible.builtin.user:
+        name: "{{ automation_user }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: Grant passwordless sudo to automation user
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ automation_user }}"
+        content: "{{ automation_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: '0440'
+        validate: visudo -cf %s
+
+    - name: Deploy automation SSH public key
+      ansible.posix.authorized_key:
+        user: "{{ automation_user }}"
+        key: "{{ automation_pubkey }}"
+        state: present

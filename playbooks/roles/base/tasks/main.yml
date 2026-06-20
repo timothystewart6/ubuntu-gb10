@@ -1,0 +1,67 @@
+---
+- name: Update apt cache and fully upgrade
+  ansible.builtin.apt:
+    update_cache: yes
+    upgrade: dist
+    cache_valid_time: 0
+
+- name: Purge unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: absent
+    purge: yes
+
+- name: Disable apt daily timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  ignore_errors: yes
+
+- name: Remove unused packages
+  ansible.builtin.apt:
+    autoremove: yes
+
+- name: Install fwupd
+  ansible.builtin.apt:
+    name: fwupd
+    state: present
+
+- name: Refresh fwupd metadata
+  ansible.builtin.command: fwupdmgr refresh --force
+  changed_when: false
+  failed_when: false
+
+- name: Disable Wi-Fi via udev rule
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-disable-wifi.rules
+    content: 'SUBSYSTEM=="net", ACTION=="add", KERNEL=="wlP9s9", RUN+="/sbin/ip link set %k down"\n'
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Bring Wi-Fi interface down immediately
+  ansible.builtin.command: ip link set wlP9s9 down
+  changed_when: false
+  failed_when: false
+
+- name: Set vm.swappiness to 10
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "10"
+    sysctl_file: /etc/sysctl.d/99-gb10.conf
+    reload: yes
+
+- name: Check for available firmware updates
+  ansible.builtin.command: fwupdmgr get-updates
+  register: fwupd_check
+  changed_when: false
+  failed_when: false
+
+- name: Apply firmware updates
+  ansible.builtin.command: fwupdmgr update --no-reboot-check
+  when: "'No updates available' not in fwupd_check.stdout"
+  notify: reboot for firmware

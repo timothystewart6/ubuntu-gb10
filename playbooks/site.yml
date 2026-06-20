@@ -1,0 +1,29 @@
+---
+# site.yml - Full GB10 setup. Run after bootstrap.yml has created the automation user.
+#
+# Full run:
+#   ansible-playbook site.yml
+#
+# With Secure Boot MOK enrollment:
+#   ansible-playbook site.yml -e mok_password=<one-time-password>
+#   Then watch the console on the next reboot for the blue MOK management screen.
+#
+# Single role:
+#   ansible-playbook site.yml --tags nvidia_stack
+#
+# Dry run:
+#   ansible-playbook site.yml --check
+
+- name: GB10 full setup
+  hosts: "{{ target | default('gb10') }}"
+  become: true
+
+  roles:
+    - role: base
+      tags: base
+
+    - role: nvidia_stack
+      tags: nvidia_stack
+
+    - role: docker_gpu
+      tags: docker_gpu

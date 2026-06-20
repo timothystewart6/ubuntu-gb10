@@ -183,10 +183,11 @@ Expected output: `/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-uvm`, etc.
 
 ---
 
-## Step 6 - (Optional) Configure Default Docker Runtime
+## Step 6 - Configure Default Docker Runtime
 
-To make `nvidia` the default runtime so you do not need `--gpus=all` on every
-`docker run`, edit `/etc/docker/daemon.json`:
+Set `nvidia` as the default Docker runtime. This is the correct configuration
+for a dedicated GPU server - it means all containers get GPU access without
+needing `--gpus=all` on every `docker run`:
 
 ```bash
 sudo tee /etc/docker/daemon.json > /dev/null <<'DOCKERCONF'
@@ -201,9 +202,6 @@ sudo tee /etc/docker/daemon.json > /dev/null <<'DOCKERCONF'
 }
 DOCKERCONF
 ```
-
-> **Note:** Setting nvidia as the default runtime means ALL containers run with
-> GPU access by default. Only do this if this host is dedicated to GPU workloads.
 
 Restart Docker:
 

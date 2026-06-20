@@ -1,0 +1,83 @@
+---
+- name: Install Docker CE packages
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Enable and start Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Add automation user to docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+
+- name: Install NVIDIA Container Toolkit
+  ansible.builtin.apt:
+    name:
+      - nvidia-container-toolkit
+      - nv-docker-options
+    state: present
+
+- name: Check if MOK key is enrolled
+  ansible.builtin.command: mokutil --test-key /var/lib/shim-signed/mok/MOK.der
+  register: mok_status
+  changed_when: false
+  failed_when: false
+
+- name: Queue MOK key for enrollment
+  ansible.builtin.shell: printf '%s\n%s\n' "{{ mok_password }}" "{{ mok_password }}" | mokutil --import /var/lib/shim-signed/mok/MOK.der
+  when:
+    - mok_password | length > 0
+    - "'is not enrolled' in mok_status.stdout"
+  no_log: true
+
+- name: Warn - manual MOK enrollment required after reboot
+  ansible.builtin.debug:
+    msg: >
+      ACTION REQUIRED: MOK key queued. Reboot and watch the console for the blue
+      "Perform MOK management" screen. Select Enroll MOK -> Continue -> enter the
+      mok_password -> Yes -> Reboot. The NVIDIA kernel modules will not load on
+      Secure Boot systems until this is done.
+  when:
+    - mok_password | length > 0
+    - "'is not enrolled' in mok_status.stdout"
+
+- name: Warn - MOK enrollment skipped (no mok_password set)
+  ansible.builtin.debug:
+    msg: >
+      Secure Boot MOK enrollment skipped. If Secure Boot is enabled, pass
+      -e mok_password=<password> and re-run, then enroll at the console on next reboot.
+  when:
+    - mok_password | length == 0
+    - "'is not enrolled' in mok_status.stdout"
+
+- name: Write Docker daemon config with NVIDIA as default runtime
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+          "default-runtime": "nvidia",
+          "runtimes": {
+              "nvidia": {
+                  "args": [],
+                  "path": "nvidia-container-runtime"
+              }
+          }
+      }
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart docker
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

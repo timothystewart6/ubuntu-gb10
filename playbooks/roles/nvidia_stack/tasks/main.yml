@@ -1,0 +1,105 @@
+---
+- name: Check if NVIDIA repo files already installed
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/dgx.sources
+  register: nvidia_repos
+
+- name: Download and extract NVIDIA repo files
+  ansible.builtin.shell:
+    cmd: >
+      curl -fsSL https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/dgx-repo-files.tgz
+      | tar xzf - -C /
+  when: not nvidia_repos.stat.exists
+
+- name: Update apt cache after repo setup
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Install NVIDIA system metapackages
+  ansible.builtin.apt:
+    name:
+      - nvidia-system-core
+      - nvidia-system-utils
+      - nvidia-system-extra
+      - linux-tools-nvidia-hwe-24.04
+      - nvidia-peermem-loader
+    state: present
+
+- name: Install HWE kernel
+  ansible.builtin.apt:
+    name: linux-nvidia-hwe-24.04
+    state: present
+  register: hwe_kernel_install
+
+- name: Reboot to load HWE kernel
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+    post_reboot_delay: 30
+    msg: "Rebooting to load HWE kernel"
+  when: hwe_kernel_install.changed
+
+- name: Install NVIDIA driver pinning package
+  ansible.builtin.apt:
+    name: "nvidia-driver-pinning-{{ nvidia_driver_version }}"
+    state: present
+
+- name: Install NVIDIA driver and DCGM packages
+  ansible.builtin.apt:
+    name:
+      - "nvidia-driver-{{ nvidia_driver_version }}-open"
+      - libnvidia-nscq
+      - nvidia-modprobe
+      - datacenter-gpu-manager-4-cuda13
+      - nv-persistence-mode
+    state: present
+    allow_downgrade: yes
+
+- name: Check if NVIDIA kernel module is loaded
+  ansible.builtin.command: lsmod
+  register: lsmod_out
+  changed_when: false
+
+- name: Reboot to load NVIDIA kernel modules
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+    post_reboot_delay: 30
+    msg: "Rebooting to load NVIDIA kernel modules"
+  when: "'nvidia' not in lsmod_out.stdout"
+
+- name: Enable NVIDIA persistence daemon and DCGM (starts after MOK enrollment + reboot)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: yes
+  loop:
+    - nvidia-persistenced
+    - nvidia-dcgm
+
+- name: Install CUDA toolkit
+  ansible.builtin.apt:
+    name: "cuda-toolkit-{{ cuda_version }}"
+    state: present
+
+- name: Configure CUDA PATH for all users
+  ansible.builtin.copy:
+    dest: /etc/profile.d/cuda.sh
+    content: |
+      export PATH=/usr/local/cuda/bin:$PATH
+      export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Purge nvsm (crash-loops on non-DGX systems)
+  ansible.builtin.apt:
+    name: nvsm
+    state: absent
+    purge: yes
+  ignore_errors: yes
+
+- name: Remove nvsm orphaned dependencies
+  ansible.builtin.apt:
+    autoremove: yes
+
+- name: Reset failed systemd units after nvsm removal
+  ansible.builtin.command: systemctl reset-failed
+  changed_when: false

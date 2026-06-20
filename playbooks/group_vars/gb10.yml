@@ -1,0 +1,9 @@
+---
+# NVIDIA driver and CUDA versions - update when upgrading
+nvidia_driver_version: "580"
+cuda_version: "13-0"
+
+# MOK password for Secure Boot key enrollment.
+# Leave empty to skip MOK enrollment (enroll manually at console after first reboot).
+# Override at runtime: ansible-playbook site.yml -e mok_password=yourpassword
+mok_password: ""

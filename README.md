@@ -82,3 +82,41 @@ may trail the DGX Spark Founders Edition by a release or two.
 4. (Optional) ConnectX-7 DOCA-OFED drivers - see [docs/04-doca-ofed.md](docs/04-doca-ofed.md)
 5. Verify everything works - see [docs/05-verify.md](docs/05-verify.md)
 6. (Optional) Performance tuning - see [docs/06-optimizations.md](docs/06-optimizations.md)
+
+## Ansible Automation
+
+The `playbooks/` directory contains Ansible roles that automate steps 2-5 above.
+The Ubuntu install (step 1) and the Secure Boot MOK console enrollment must be done manually.
+
+### Prerequisites
+
+- Ubuntu 24.04 installed and reachable via SSH
+- An `automation` user with passwordless sudo and your SSH key deployed
+  (run `bootstrap.yml` once if the account does not exist yet)
+- Ansible installed on your control machine (`pip install ansible`)
+
+### First-time bootstrap (if automation user does not exist)
+
+```bash
+cd playbooks
+ansible-playbook bootstrap.yml -i <ip>, -u <install-user> --ask-pass --ask-become-pass
+```
+
+### Full setup
+
+```bash
+cd playbooks
+ansible-playbook site.yml -i <ip>, -e target=all -e mok_password=<one-time-password>
+```
+
+After the playbook completes, **reboot and watch the console** for the blue
+"Perform MOK management" screen. Enroll the MOK key using the password you set above.
+This is a one-time step required for Secure Boot systems.
+
+### Verify
+
+```bash
+ansible-playbook verify.yml -i <ip>, -e target=all
+```
+
+Runs 33 checks across OS, kernel, Secure Boot, NVIDIA driver, services, CUDA, Docker, and system hygiene. All checks are read-only.

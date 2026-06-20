@@ -1,0 +1,217 @@
+---
+# verify.yml - Post-install verification for GB10 systems.
+# Reports pass/fail for each check without making any changes.
+#
+# Usage:
+#   ansible-playbook verify.yml -i <ip>, -e target=all
+
+- name: GB10 post-install verification
+  hosts: "{{ target | default('gb10') }}"
+  become: true
+  gather_facts: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # OS / Kernel
+    # -------------------------------------------------------------------------
+    - name: Check architecture is arm64
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] == "aarch64"
+        fail_msg: "Expected aarch64, got {{ ansible_facts['architecture'] }}"
+        success_msg: "Architecture: aarch64"
+
+    - name: Check OS is Ubuntu 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == "Ubuntu"
+          - ansible_facts['distribution_version'] == "24.04"
+        fail_msg: "Expected Ubuntu 24.04, got {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+        success_msg: "OS: Ubuntu {{ ansible_facts['distribution_version'] }}"
+
+    - name: Check HWE kernel is running
+      ansible.builtin.assert:
+        that: "'nvidia' in ansible_facts['kernel']"
+        fail_msg: "Expected nvidia HWE kernel, got {{ ansible_facts['kernel'] }}"
+        success_msg: "Kernel: {{ ansible_facts['kernel'] }}"
+
+    # -------------------------------------------------------------------------
+    # Secure Boot
+    # -------------------------------------------------------------------------
+    - name: Check Secure Boot state
+      ansible.builtin.command: mokutil --sb-state
+      register: sb_state
+      changed_when: false
+      failed_when: false
+
+    - name: Report Secure Boot state
+      ansible.builtin.debug:
+        msg: "Secure Boot: {{ sb_state.stdout | trim }}"
+
+    - name: Check MOK key is enrolled
+      ansible.builtin.command: mokutil --test-key /var/lib/shim-signed/mok/MOK.der
+      register: mok_enrolled
+      changed_when: false
+      failed_when: false
+
+    - name: Assert MOK key is enrolled (required when Secure Boot enabled)
+      ansible.builtin.assert:
+        that: "'is already enrolled' in mok_enrolled.stdout"
+        fail_msg: "MOK key NOT enrolled - NVIDIA modules will not load. Re-run site.yml with -e mok_password=<pw> and enroll at console on next reboot."
+        success_msg: "MOK key: enrolled"
+      when: "'SecureBoot enabled' in sb_state.stdout"
+
+    # -------------------------------------------------------------------------
+    # NVIDIA driver
+    # -------------------------------------------------------------------------
+    - name: Check NVIDIA kernel module is loaded
+      ansible.builtin.command: lsmod
+      register: lsmod_out
+      changed_when: false
+
+    - name: Assert nvidia module is loaded
+      ansible.builtin.assert:
+        that: "'nvidia' in lsmod_out.stdout"
+        fail_msg: "nvidia kernel module is NOT loaded"
+        success_msg: "nvidia kernel module: loaded"
+
+    - name: Run nvidia-smi
+      ansible.builtin.command: nvidia-smi --query-gpu=name,driver_version,persistence_mode --format=csv,noheader
+      register: nvidia_smi
+      changed_when: false
+
+    - name: Report nvidia-smi output
+      ansible.builtin.debug:
+        msg: "GPU: {{ nvidia_smi.stdout | trim }}"
+
+    - name: Assert persistence mode is enabled
+      ansible.builtin.assert:
+        that: "'Enabled' in nvidia_smi.stdout"
+        fail_msg: "Persistence mode is NOT enabled"
+        success_msg: "Persistence mode: Enabled"
+
+    # -------------------------------------------------------------------------
+    # NVIDIA services
+    # -------------------------------------------------------------------------
+    - name: Check nvidia-persistenced is active
+      ansible.builtin.command: systemctl is-active nvidia-persistenced
+      register: persistenced_status
+      changed_when: false
+      failed_when: false
+
+    - name: Assert nvidia-persistenced is active
+      ansible.builtin.assert:
+        that: persistenced_status.stdout == "active"
+        fail_msg: "nvidia-persistenced is {{ persistenced_status.stdout }}"
+        success_msg: "nvidia-persistenced: active"
+
+    - name: Check nvidia-dcgm is active
+      ansible.builtin.command: systemctl is-active nvidia-dcgm
+      register: dcgm_status
+      changed_when: false
+      failed_when: false
+
+    - name: Assert nvidia-dcgm is active
+      ansible.builtin.assert:
+        that: dcgm_status.stdout == "active"
+        fail_msg: "nvidia-dcgm is {{ dcgm_status.stdout }}"
+        success_msg: "nvidia-dcgm: active"
+
+    # -------------------------------------------------------------------------
+    # CUDA
+    # -------------------------------------------------------------------------
+    - name: Check nvcc is available
+      ansible.builtin.command: /usr/local/cuda/bin/nvcc --version
+      register: nvcc_version
+      changed_when: false
+
+    - name: Report CUDA version
+      ansible.builtin.debug:
+        msg: "{{ nvcc_version.stdout_lines[-1] | trim }}"
+
+    # -------------------------------------------------------------------------
+    # Docker
+    # -------------------------------------------------------------------------
+    - name: Check Docker is active
+      ansible.builtin.command: systemctl is-active docker
+      register: docker_status
+      changed_when: false
+      failed_when: false
+
+    - name: Assert Docker is active
+      ansible.builtin.assert:
+        that: docker_status.stdout == "active"
+        fail_msg: "Docker is {{ docker_status.stdout }}"
+        success_msg: "Docker: active"
+
+    - name: Check Docker default runtime is nvidia
+      ansible.builtin.command: docker info --format '{{ "{{" }}.DefaultRuntime{{ "}}" }}'
+      register: docker_runtime
+      changed_when: false
+
+    - name: Assert Docker default runtime is nvidia
+      ansible.builtin.assert:
+        that: docker_runtime.stdout | trim == "nvidia"
+        fail_msg: "Docker default runtime is '{{ docker_runtime.stdout | trim }}', expected 'nvidia'"
+        success_msg: "Docker default runtime: nvidia"
+
+    - name: Test GPU access in Docker
+      ansible.builtin.command: >
+        docker run --rm --gpus=all ubuntu:24.04
+        bash -c "ls /dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm"
+      register: docker_gpu_test
+      changed_when: false
+
+    - name: Assert GPU devices visible in container
+      ansible.builtin.assert:
+        that: docker_gpu_test.rc == 0
+        fail_msg: "GPU devices not accessible in Docker containers"
+        success_msg: "GPU devices in container: {{ docker_gpu_test.stdout | trim }}"
+
+    # -------------------------------------------------------------------------
+    # System hygiene
+    # -------------------------------------------------------------------------
+    - name: Check nvsm is not installed
+      ansible.builtin.command: dpkg -s nvsm
+      register: nvsm_check
+      changed_when: false
+      failed_when: false
+
+    - name: Assert nvsm is not installed
+      ansible.builtin.assert:
+        that: nvsm_check.rc != 0
+        fail_msg: "nvsm is still installed - it will crash-loop on non-DGX systems"
+        success_msg: "nvsm: not installed"
+
+    - name: Check Wi-Fi udev rule exists
+      ansible.builtin.stat:
+        path: /etc/udev/rules.d/99-disable-wifi.rules
+      register: wifi_rule
+
+    - name: Assert Wi-Fi disable rule is in place
+      ansible.builtin.assert:
+        that: wifi_rule.stat.exists
+        fail_msg: "Wi-Fi disable udev rule is missing"
+        success_msg: "Wi-Fi disable rule: present"
+
+    - name: Check vm.swappiness
+      ansible.builtin.command: sysctl -n vm.swappiness
+      register: swappiness
+      changed_when: false
+
+    - name: Assert vm.swappiness is 10
+      ansible.builtin.assert:
+        that: swappiness.stdout | int == 10
+        fail_msg: "vm.swappiness is {{ swappiness.stdout }}, expected 10"
+        success_msg: "vm.swappiness: {{ swappiness.stdout }}"
+
+    # -------------------------------------------------------------------------
+    # Memory / hardware summary
+    # -------------------------------------------------------------------------
+    - name: Gather memory info
+      ansible.builtin.command: grep -E 'MemTotal|MemAvailable' /proc/meminfo
+      register: meminfo
+      changed_when: false
+
+    - name: Report memory
+      ansible.builtin.debug:
+        msg: "{{ meminfo.stdout_lines }}"
