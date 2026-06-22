@@ -302,6 +302,137 @@ ssh <user>@gb10-1.local
 
 ---
 
+## Step 6 - Critical Stability Fix: Load the SBSA Watchdog Driver
+
+> **Apply this immediately after install.** Without it, GB10 / DGX Spark systems
+> hard-reset roughly every 20 minutes - even when completely idle with no GPU or
+> Docker workload running. This is a fix, not an optional tweak.
+
+### Symptom
+
+The machine reboots on a near-exact ~20-minute interval. The kernel log goes
+silent and `pstore` is empty (no panic, Xid, MCE, or soft-lockup) - the box just
+resets. Boot-to-boot intervals are metronome-precise (e.g. 20m38s, 20m40s,
+20m41s), which is the signature of a hardware watchdog, not a random fault.
+
+### Cause
+
+The GB10/GX10 firmware arms the **ARM SBSA Generic Watchdog** at boot (a 2-stage
+timer, ~10 min per stage = ~20 min to reset) and expects the OS to take ownership
+of it. Stock Ubuntu does **not** load the `sbsa_gwdt` driver by default, so the
+watchdog is never serviced and fires on schedule.
+
+Confirm the watchdog exists but has no driver bound:
+
+```bash
+# Firmware advertises the watchdog...
+sudo dmesg | grep -i 'SBSA generic Watchdog'
+# -> ACPI GTDT: found 1 SBSA generic Watchdog(s).
+
+# ...and the platform device is present...
+ls /sys/bus/platform/devices/ | grep sbsa-gwdt
+# -> sbsa-gwdt.0
+
+# ...but no driver is loaded and there is no /dev/watchdog:
+lsmod | grep sbsa_gwdt        # (empty)
+ls /dev/watchdog*             # No such file or directory
+```
+
+### Fix
+
+Load the driver so the kernel adopts the running watchdog and keeps it alive
+while the system is healthy. A genuine kernel freeze stops the keepalive and the
+watchdog resets the box within ~10 s, so real-hang recovery is retained.
+
+```bash
+# Load it now
+sudo modprobe sbsa_gwdt
+
+# Persist across reboots
+echo sbsa_gwdt | sudo tee /etc/modules-load.d/sbsa_gwdt.conf
+```
+
+Verify it is active:
+
+```bash
+sudo dmesg | grep -i sbsa-gwdt
+# -> sbsa-gwdt sbsa-gwdt.0: Initialized with 10s timeout @ 1000000000 Hz, action=0. [enabled]
+
+cat /sys/class/watchdog/watchdog0/identity   # -> SBSA Generic Watchdog
+cat /sys/class/watchdog/watchdog0/timeout    # -> 10
+```
+
+The box should now run indefinitely past the 20-minute mark.
+
+> **Proper vendor fix (secondary):** The SOC firmware is what arms the watchdog.
+> The latest ASUS/NVIDIA platform firmware (e.g. ASUS GX10 BIOS bundle v0104,
+> SOC FW 3.0.6 / EC 2.78.18.3 / PD 5.7) may correct the watchdog handoff and is
+> worth applying - see [06-optimizations.md](06-optimizations.md#firmware-updates-fwupd).
+> Flash carefully: keep the unit on AC, do not run headless during the flash, and
+> do one machine at a time. The driver fix above is what makes the system usable
+> in the meantime and is harmless to keep even after a firmware update.
+
+---
+
+## Step 7 - Critical Fix: Set nvidia-container-runtime to Legacy Mode
+
+### Symptom
+
+Any `docker run --gpus all <nvidia-cuda-image>` fails immediately at container
+start with:
+
+```
+exec /opt/nvidia/nvidia_entrypoint.sh: exec format error
+```
+
+GPU hardware is healthy - `nvidia-smi` on the host works fine.
+
+### Cause
+
+`/opt/nvidia/nvidia_entrypoint.sh` is shipped as a 0-byte placeholder in NVIDIA
+CUDA base images. The `nvidia-container-runtime` is supposed to populate it via
+its **legacy mode** hook at container startup. With `nvidia-container-toolkit`
+1.19+, the default mode is `"auto"`. When CDI device specs are present under
+`/etc/cdi` (which the toolkit generates automatically), `auto` selects **CDI
+mode** instead of legacy mode. CDI mode does not run the hook, so the entrypoint
+stays 0 bytes and the kernel returns `ENOEXEC` when Docker tries to exec it.
+
+Confirm the current (broken) state:
+
+```bash
+grep "^mode" /etc/nvidia-container-runtime/config.toml
+# mode = "auto"   <- wrong
+
+docker info | grep cdi
+# cdi: nvidia.com/gpu=0   <- CDI active
+```
+
+### Fix
+
+Force legacy mode so the hook always runs:
+
+```bash
+sudo sed -i 's/^mode = .*/mode = "legacy"/' /etc/nvidia-container-runtime/config.toml
+sudo systemctl restart docker
+```
+
+Verify:
+
+```bash
+docker run --rm --gpus all --entrypoint nvidia-smi \
+  nvidia/cuda:13.2.0-devel-ubuntu24.04
+# Should print the GPU table, no exec format error
+```
+
+The Ansible `nvidia_stack` role handles this automatically (see
+`playbooks/roles/nvidia_stack/tasks/main.yml`). Run it to apply idempotently:
+
+```bash
+ansible-playbook -i inventory/hosts.yml site.yml --tags nvidia_stack
+```
+
+---
+
 ## Next Step
 
 Continue to [02-nvidia-stack.md](02-nvidia-stack.md) to install the NVIDIA software stack.
