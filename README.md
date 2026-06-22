@@ -4,7 +4,9 @@
 
 This repo documents the full setup of an **NVIDIA GB10 Grace Blackwell** system as a clean
 Ubuntu 24.04 GPU server, modeled after DGX OS 7 but running standard Ubuntu Server without
-NVIDIA's proprietary DGX image.
+NVIDIA's customized DGX OS image.
+
+Read the full write-up: [Ubuntu Server on the NVIDIA DGX Spark (Without the Desktop)](https://technotim.com/posts/ubuntu-gb10/)
 
 This guide applies to the **NVIDIA DGX Spark** and all GB10-based partner systems, including:
 
@@ -24,7 +26,6 @@ All GB10 systems share the same **NVIDIA GB10 Grace Blackwell Superchip** SoC:
 - 128 GB unified LPDDR5x memory shared between the 20-core ARM Grace CPU and GPU via NVLink-C2C
 - NVIDIA ConnectX-7 NIC (two GX10 units can be linked)
 - 10 GbE LAN
-- Compact 150 x 150 x 51 mm form factor
 
 > All GB10 partner systems share the same ARM64 SoC. This is NOT x86_64.
 
