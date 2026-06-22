@@ -1,2 +1,4 @@
 ---
 mok_password: ""
+docker_users:
+  - automation

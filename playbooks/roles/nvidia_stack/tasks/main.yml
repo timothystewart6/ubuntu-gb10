@@ -116,3 +116,33 @@
     name:
       - libnccl2
     state: present
+
+- name: Pin nvidia-modprobe to driver version (prevent version mismatch crashes)
+  ansible.builtin.apt:
+    name: "nvidia-modprobe={{ nvidia_package_version }}"
+    state: present
+    allow_downgrade: yes
+
+# nvidia-container-toolkit 1.19+ defaults to mode = "auto", which activates
+# CDI mode when CDI device specs are present (/etc/cdi). CDI mode does NOT
+# run the legacy hook that populates /opt/nvidia/nvidia_entrypoint.sh, so
+# CUDA images fail at container start with "exec format error" (ENOEXEC).
+# Force legacy mode so the hook runs and the entrypoint is populated correctly.
+- name: Set nvidia-container-runtime mode to legacy
+  ansible.builtin.lineinfile:
+    path: /etc/nvidia-container-runtime/config.toml
+    regexp: '^mode\s*='
+    line: 'mode = "legacy"'
+  notify: restart docker
+
+- name: Verify GPU access in container
+  ansible.builtin.command: >
+    docker run --rm --gpus all --entrypoint nvidia-smi
+    nvidia/cuda:{{ cuda_base_image_tag }}-devel-ubuntu24.04
+  changed_when: false
+  register: nct_verify
+
+- name: Assert nvidia-smi succeeded in container
+  ansible.builtin.assert:
+    that: nct_verify.rc == 0
+    fail_msg: "GPU not accessible in container after setting legacy mode"

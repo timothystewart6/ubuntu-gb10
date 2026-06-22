@@ -15,11 +15,13 @@
     state: started
     enabled: yes
 
-- name: Add automation user to docker group
+- name: Add users to docker group
   ansible.builtin.user:
-    name: "{{ ansible_user }}"
+    name: "{{ item }}"
     groups: docker
     append: yes
+  loop: "{{ docker_users }}"
+  ignore_errors: true
 
 - name: Install NVIDIA Container Toolkit
   ansible.builtin.apt:
@@ -81,3 +83,47 @@
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
+
+- name: Install cron
+  ansible.builtin.apt:
+    name: cron
+    state: present
+
+- name: Enable and start cron
+  ansible.builtin.systemd:
+    name: cron
+    enabled: yes
+    state: started
+
+- name: Create /opt/actions-runner directory
+  ansible.builtin.file:
+    path: /opt/actions-runner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy weekly docker prune script
+  ansible.builtin.copy:
+    dest: /opt/actions-runner/prune-docker.sh
+    content: |
+      #!/bin/bash
+      # Weekly Docker system prune - removes unused images, containers, and networks.
+      # Volumes are excluded to protect persistent data (model cache, etc.).
+      set -euo pipefail
+      echo "[docker-prune] starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      docker system prune -af
+      echo "[docker-prune] done at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Schedule weekly docker prune (Sunday 03:00 UTC)
+  ansible.builtin.copy:
+    dest: /etc/cron.d/docker-prune
+    content: |
+      # Weekly Docker system prune - see /opt/actions-runner/prune-docker.sh
+      0 3 * * 0 root /opt/actions-runner/prune-docker.sh >> /var/log/docker-prune.log 2>&1
+    owner: root
+    group: root
+    mode: '0644'
