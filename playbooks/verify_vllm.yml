@@ -1,0 +1,106 @@
+---
+# verify_vllm.yml - Verify vLLM Ray cluster health on both nodes.
+#
+# Usage:
+#   ansible-playbook verify_vllm.yml -i inventory/hosts.yml \
+#     --private-key ~/.ssh/automation_ed25519
+
+- name: vLLM cluster verification
+  hosts: "{{ target | default('gb10') }}"
+  become: false
+  gather_facts: false
+
+  vars:
+    vllm_head_ip: "192.168.10.66"
+    vllm_image: ghcr.io/timothystewart6/vllm-gb10:latest
+    vllm_model_cache: /mnt/llm/models/huggingface
+
+  tasks:
+
+    # --- System health pre-checks (independent of vLLM state) ----------------
+
+    - name: Check SBSA watchdog driver is loaded
+      ansible.builtin.shell: lsmod | grep -c sbsa_gwdt
+      changed_when: false
+      register: _watchdog
+      failed_when: _watchdog.stdout | int == 0
+
+    - name: Check nvidia-container-runtime is in legacy mode
+      ansible.builtin.shell: grep '^mode' /etc/nvidia-container-runtime/config.toml
+      changed_when: false
+      register: _nct_mode
+      failed_when: '"legacy" not in _nct_mode.stdout'
+
+    - name: Check Docker default runtime is nvidia
+      ansible.builtin.shell: docker info 2>/dev/null | grep "Default Runtime"
+      changed_when: false
+      register: _docker_runtime
+      failed_when: '"nvidia" not in _docker_runtime.stdout'
+
+    - name: Check MiniMax IPC backport script is deployed
+      ansible.builtin.stat:
+        path: /home/automation/vllm/patch_minimax_ipc.py
+      register: _patch_script
+      failed_when: not _patch_script.stat.exists
+
+    # --- NFS / model cache ---------------------------------------------------
+
+    - name: Check model files present in cache
+      ansible.builtin.shell: ls {{ vllm_model_cache }} | wc -l
+      changed_when: false
+      register: _model_count
+      failed_when: _model_count.stdout | int == 0
+
+    - name: Check vLLM image is present
+      ansible.builtin.command: docker image inspect {{ vllm_image }}
+      changed_when: false
+      register: _image_check
+      failed_when: _image_check.rc != 0
+
+    - name: Check vLLM container is running
+      ansible.builtin.shell: docker ps --filter "name=vllm-ray-" --filter "status=running" | grep -c vllm-ray
+      changed_when: false
+      register: _container_running
+      failed_when: _container_running.stdout | int == 0
+
+    - name: Check Ray cluster has 2 nodes (head only)
+      ansible.builtin.shell: docker exec vllm-ray-head ray status 2>/dev/null | grep -c "^\ *1 node_"
+      changed_when: false
+      register: _ray_nodes
+      failed_when: _ray_nodes.stdout | int < 2
+      when: inventory_hostname in groups['gb10_head']
+
+    - name: Check vLLM endpoint responds (head node only)
+      ansible.builtin.uri:
+        url: http://{{ vllm_head_ip }}:8000/health
+        method: GET
+        status_code: 200
+        timeout: 10
+      delegate_to: localhost
+      run_once: true
+      register: _health
+      failed_when: _health.status != 200
+
+    - name: Check vLLM models endpoint (head node only)
+      ansible.builtin.uri:
+        url: http://{{ vllm_head_ip }}:8000/v1/models
+        method: GET
+        status_code: 200
+        timeout: 10
+      delegate_to: localhost
+      run_once: true
+      register: _models
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Watchdog (sbsa_gwdt): loaded"
+          - "nvidia-container-runtime: {{ _nct_mode.stdout | trim }}"
+          - "Docker default runtime: {{ _docker_runtime.stdout | trim }}"
+          - "MiniMax IPC backport:  present"
+          - "NFS mount:       OK ({{ _model_count.stdout | trim }} model dirs)"
+          - "Docker image:    OK"
+          - "Container:       running"
+          - "Health endpoint: HTTP {{ _health.status }}"
+          - "Models loaded:   {{ (_models.json.data | map(attribute='id') | list) | join(', ') }}"
+      run_once: true

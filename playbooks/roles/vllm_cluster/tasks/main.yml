@@ -1,0 +1,56 @@
+---
+- name: Verify NFS model cache is mounted
+  ansible.builtin.stat:
+    path: "{{ vllm_model_cache }}"
+  register: _model_cache
+  failed_when: not _model_cache.stat.exists or not _model_cache.stat.isdir
+
+- name: Verify model files are accessible
+  ansible.builtin.find:
+    paths: "{{ vllm_model_cache }}"
+    file_type: directory
+    recurse: false
+  register: _model_dirs
+  failed_when: _model_dirs.files | length == 0
+
+- name: Create vLLM compose directory
+  ansible.builtin.file:
+    path: "{{ vllm_compose_dir }}"
+    state: directory
+    owner: automation
+    group: automation
+    mode: '0755'
+
+- name: Create vLLM compile cache directory on NFS
+  ansible.builtin.file:
+    path: "{{ vllm_compile_cache }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy .env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ vllm_compose_dir }}/.env"
+    owner: automation
+    group: automation
+    mode: '0600'
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ vllm_compose_dir }}/docker-compose.yml"
+    owner: automation
+    group: automation
+    mode: '0644'
+
+- name: Pull vLLM image
+  ansible.builtin.command:
+    cmd: docker pull {{ vllm_image }}
+  register: _docker_pull
+  changed_when: "'Status: Downloaded newer image' in _docker_pull.stdout"
+  become: true
+  become_user: automation
+  async: 3600
+  poll: 30

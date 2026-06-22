@@ -1,0 +1,21 @@
+---
+vllm_image: ghcr.io/timothystewart6/vllm-gb10:v0.23.1rc0-gb10.0
+vllm_model: cyankiwi/MiniMax-M2.7-AWQ-4bit
+vllm_compose_dir: /home/automation/vllm
+vllm_model_cache: /mnt/llm/models/huggingface
+vllm_compile_cache: /mnt/llm/vllm-compile-cache
+vllm_hf_token: ""
+vllm_qsfp_iface: enp1s0f0np0
+vllm_gpu_memory_utilization: "0.8"
+vllm_max_model_len: "196608"
+vllm_tensor_parallel_size: "2"
+vllm_shm_size: 10.24gb
+vllm_ray_num_cpus: 2
+vllm_ray_object_store_memory: 1073741824
+
+# Set per-host in inventory (head or worker)
+vllm_role: ""
+
+# Set in group_vars/gb10.yml
+vllm_head_ip: ""
+vllm_worker_ip: ""

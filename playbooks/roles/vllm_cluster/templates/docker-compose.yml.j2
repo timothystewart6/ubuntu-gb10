@@ -1,0 +1,134 @@
+{% if vllm_role == 'head' %}
+services:
+  vllm-ray-head:
+    image: {{ vllm_image }}
+    container_name: vllm-ray-head
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    shm_size: '{{ vllm_shm_size }}'
+    # privileged: true is required to reach ~40 tok/sec on GB10. Without it
+    # generation drops to ~24 tok/sec.
+    privileged: true
+    cap_add:
+      - SYS_PTRACE
+    devices:
+      - /dev/infiniband:/dev/infiniband
+    ulimits:
+      memlock: -1
+    volumes:
+      - {{ vllm_model_cache }}:/root/.cache/huggingface
+      - {{ vllm_compile_cache }}:/root/.cache/vllm
+    env_file:
+      - .env
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_HOST_IP=${HEAD_IP}
+      - UCX_NET_DEVICES=${QSFP_IFACE}
+      - NCCL_SOCKET_IFNAME=${QSFP_IFACE}
+      - OMPI_MCA_btl_tcp_if_include=${QSFP_IFACE}
+      - GLOO_SOCKET_IFNAME=${QSFP_IFACE}
+      - TP_SOCKET_IFNAME=${QSFP_IFACE}
+      - RAY_memory_monitor_refresh_ms=0
+      - RAY_num_prestart_python_workers=0
+      - RAY_object_store_memory=1073741824
+      - RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+      - MASTER_ADDR=${HEAD_IP}
+      - MN_IF_NAME=${QSFP_IFACE}
+      - SAFETENSORS_FAST_GPU=1
+      # GPUDirect RDMA is NOT supported on GB10/DGX Spark: the unified-memory SoC
+      # cannot coherently expose cudaMalloc memory to PCIe peers, so nvidia_peermem
+      # / dma-buf / GDRCopy do not work (peermem load fails "Invalid argument").
+      # Forcing NCCL onto the IB/RDMA path hard-locks the SoC (no Xid/MCE, pure DMA
+      # hang). Confirmed by NVIDIA:
+      #   https://forums.developer.nvidia.com/t/dgx-spark-gpudirect-rdma/348787
+      #   https://nvidia.custhelp.com/app/answers/detail/a_id/5780
+      # Use TCP sockets over the QSFP (NCCL_SOCKET_IFNAME) instead.
+      - NCCL_IB_DISABLE=1
+      - NCCL_NET_GDR_LEVEL=0
+      - NCCL_ALGO=Ring
+      - NCCL_MIN_NCHANNELS=4
+      - OMP_NUM_THREADS=4
+    entrypoint: ["/bin/bash", "-c"]
+    # Ray head starts; sleep 60 gives the worker node time to connect before vllm
+    # starts allocating the placement group across both GPUs.
+    #
+    # FLAGS: match official spark-vllm-docker M2.7-AWQ recipe EXACTLY.
+    # See: https://github.com/eugr/spark-vllm-docker/blob/main/recipes/minimax-m2.7-awq.yaml
+    command:
+      - "ray start --head --node-ip-address=${HEAD_IP} --port=6379 --object-store-memory 1073741824 --num-cpus {{ vllm_ray_num_cpus }} --include-dashboard=false --disable-usage-stats && sleep 60 && vllm serve {{ vllm_model }} --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size {{ vllm_tensor_parallel_size }} --distributed-executor-backend ray --gpu-memory-utilization {{ vllm_gpu_memory_utilization }} --load-format fastsafetensors --max-model-len {{ vllm_max_model_len }} --enable-auto-tool-choice --tool-call-parser minimax_m2 --reasoning-parser minimax_m2"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 60
+      start_period: 1800s
+{% else %}
+services:
+  vllm-ray-worker:
+    image: {{ vllm_image }}
+    container_name: vllm-ray-worker
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    shm_size: '{{ vllm_shm_size }}'
+    # privileged: true is required to reach ~40 tok/sec on GB10. Without it
+    # (specific uverbs device mounts only), generation drops to ~24 tok/sec.
+    privileged: true
+    ulimits:
+      memlock: -1
+    volumes:
+      - {{ vllm_model_cache }}:/root/.cache/huggingface
+      - {{ vllm_compile_cache }}:/root/.cache/vllm
+    env_file:
+      - .env
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_HOST_IP=${WORKER_IP}
+      - UCX_NET_DEVICES=${QSFP_IFACE}
+      - NCCL_SOCKET_IFNAME=${QSFP_IFACE}
+      - OMPI_MCA_btl_tcp_if_include=${QSFP_IFACE}
+      - GLOO_SOCKET_IFNAME=${QSFP_IFACE}
+      - TP_SOCKET_IFNAME=${QSFP_IFACE}
+      - RAY_memory_monitor_refresh_ms=0
+      - RAY_num_prestart_python_workers=0
+      - RAY_object_store_memory=1073741824
+      - RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+      - MASTER_ADDR=${HEAD_IP}
+      - MN_IF_NAME=${QSFP_IFACE}
+      - SAFETENSORS_FAST_GPU=1
+      # GPUDirect RDMA is NOT supported on GB10/DGX Spark (unified-memory SoC).
+      # Forcing NCCL onto IB/RDMA hard-locks the SoC. Confirmed by NVIDIA:
+      #   https://forums.developer.nvidia.com/t/dgx-spark-gpudirect-rdma/348787
+      # Use TCP sockets over the QSFP (NCCL_SOCKET_IFNAME) instead.
+      - NCCL_IB_DISABLE=1
+      - NCCL_NET_GDR_LEVEL=0
+      - NCCL_ALGO=Ring
+      - NCCL_MIN_NCHANNELS=4
+      - OMP_NUM_THREADS=4
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - "ray start --address=${HEAD_IP}:6379 --node-ip-address=${WORKER_IP} --object-store-memory 1073741824 --num-cpus {{ vllm_ray_num_cpus }} --disable-usage-stats --block"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ray", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+{% endif %}
