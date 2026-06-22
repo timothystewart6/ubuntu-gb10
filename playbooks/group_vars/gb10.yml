@@ -7,7 +7,10 @@ cuda_version: "13-0"
 
 # MOK password for Secure Boot key enrollment.
 # Leave empty to skip MOK enrollment (enroll manually at console after first reboot).
-# Override at runtime: ansible-playbook site.yml -e mok_password=yourpassword
+# Override at runtime: ansible-playbook site.yml -e 'mok_password=yourpassword'
+# Use single quotes to prevent shell expansion of special characters.
+# To avoid shell history: prefix with a space (HISTCONTROL=ignorespace / HIST_IGNORE_SPACE)
+# or pass via file:  echo 'mok_password: yourpassword' > /tmp/mok.yml && ... -e @/tmp/mok.yml
 mok_password: ""
 
 # vLLM Ray cluster node IPs (management network, stable across reboots)

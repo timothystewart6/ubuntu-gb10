@@ -106,9 +106,16 @@ ansible-playbook bootstrap.yml -i <ip>, -u <install-user> --ask-pass --ask-becom
 
 ### Full setup
 
+> **Security note:** `mok_password` is a one-time throwaway password - pick
+> something simple you can type at the UEFI console on the next reboot. To keep
+> it out of your shell history, prefix the command with a leading space (requires
+> `HISTCONTROL=ignorespace` in bash, or `setopt HIST_IGNORE_SPACE` in zsh), or
+> pass it via a temp file: `echo 'mok_password: yourpassword' > /tmp/mok.yml &&
+> ansible-playbook ... -e @/tmp/mok.yml && rm /tmp/mok.yml`.
+
 ```bash
 cd playbooks
-ansible-playbook site.yml -i <ip>, -e target=all -e mok_password=<one-time-password>
+ansible-playbook site.yml -i <ip>, -e target=all -e 'mok_password=<one-time-password>'
 ```
 
 After the playbook completes, **reboot and watch the console** for the blue

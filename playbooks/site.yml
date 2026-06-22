@@ -4,8 +4,11 @@
 # Full run:
 #   ansible-playbook site.yml
 #
-# With Secure Boot MOK enrollment:
-#   ansible-playbook site.yml -e mok_password=<one-time-password>
+# With Secure Boot MOK enrollment (pick a short throwaway password - you only need
+# to remember it long enough to type it at the UEFI console on the next reboot):
+#   ansible-playbook site.yml -e 'mok_password=<one-time-password>'
+#   To avoid shell history exposure, prefix with a space (HISTCONTROL=ignorespace)
+#   or use: ansible-playbook site.yml -e @/tmp/mok.yml  (file contains mok_password: ...)
 #   Then watch the console on the next reboot for the blue MOK management screen.
 #
 # Single role:

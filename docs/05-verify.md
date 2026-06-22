@@ -85,7 +85,7 @@ Measured at the wall with a smart plug (idle, no active workload):
 
 | Feature | DGX OS 7 | Ubuntu Server 24.04 (this guide) |
 |---|---|---|
-| Base OS | Ubuntu 22.04 | Ubuntu 24.04 |
+| Base OS | Ubuntu 24.04 | Ubuntu 24.04 |
 | GNOME desktop | Included | Not installed |
 | NVIDIA driver | Pre-installed (closed) | Installed manually (open modules) |
 | CUDA toolkit | Pre-installed | Installed manually |

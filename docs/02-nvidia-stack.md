@@ -122,13 +122,13 @@ sudo apt install -y nvidia-system-utils
 
 ### Development and extra tools - includes automake, build-essential, vim
 
+> **Note:** `nvidia-system-extra` pulls in `docker-ce` and `nvidia-container-toolkit` as
+> dependencies. If you want to control Docker installation separately (recommended
+> - see [03-docker-gpu.md](03-docker-gpu.md)), skip the command below and move on.
+
 ```bash
 sudo apt install -y nvidia-system-extra
 ```
-
-> `nvidia-system-extra` pulls in `docker-ce` and `nvidia-container-toolkit` as
-> dependencies. If you want to control Docker installation separately, skip this
-> for now and see [03-docker-gpu.md](03-docker-gpu.md).
 
 > **Desktop/GUI:** Do NOT install `nvidia-system-station` unless you want a full
 > GNOME desktop environment. This is a server - skip it.
