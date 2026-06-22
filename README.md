@@ -1,5 +1,7 @@
 # Ubuntu 24.04 + NVIDIA Stack Setup for GB10 / DGX Spark Systems
 
+![Ubuntu Server on the NVIDIA DGX Spark](docs/ubuntu-gb10.webp)
+
 This repo documents the full setup of an **NVIDIA GB10 Grace Blackwell** system as a clean
 Ubuntu 24.04 GPU server, modeled after DGX OS 7 but running standard Ubuntu Server without
 NVIDIA's proprietary DGX image.
