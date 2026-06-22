@@ -4,3 +4,15 @@
     reboot_timeout: 300
     post_reboot_delay: 30
     msg: "Rebooting after firmware updates"
+
+- name: restart journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+
+- name: systemd daemon-reload
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: update grub
+  ansible.builtin.command: update-grub
