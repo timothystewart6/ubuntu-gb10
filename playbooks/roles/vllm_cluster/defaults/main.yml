@@ -6,6 +6,8 @@ vllm_model_cache: /mnt/llm/models/huggingface
 vllm_compile_cache: /mnt/llm/vllm-compile-cache
 vllm_hf_token: ""
 vllm_qsfp_iface: enp1s0f0np0
+# IB device name for the active CX-7 port (ibdev2netdev maps mlx5_0 -> enp1s0f0np0)
+vllm_ib_hca: mlx5_0
 vllm_gpu_memory_utilization: "0.8"
 vllm_max_model_len: "196608"
 vllm_tensor_parallel_size: "2"

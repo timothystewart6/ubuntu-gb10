@@ -37,15 +37,18 @@ services:
       - MASTER_ADDR=${HEAD_IP}
       - MN_IF_NAME=${QSFP_IFACE}
       - SAFETENSORS_FAST_GPU=1
-      # GPUDirect RDMA is NOT supported on GB10/DGX Spark: the unified-memory SoC
-      # cannot coherently expose cudaMalloc memory to PCIe peers, so nvidia_peermem
-      # / dma-buf / GDRCopy do not work (peermem load fails "Invalid argument").
-      # Forcing NCCL onto the IB/RDMA path hard-locks the SoC (no Xid/MCE, pure DMA
-      # hang). Confirmed by NVIDIA:
+      # GPUDirect RDMA (GDR/GDRCopy/nvidia_peermem) is NOT supported on GB10/DGX
+      # Spark. The unified-memory SoC cannot coherently expose cudaMalloc memory to
+      # PCIe peers - peermem load fails "Invalid argument". NCCL_NET_GDR_LEVEL=0
+      # disables GDR specifically while leaving CPU-side RoCE active.
+      # DO NOT set NCCL_IB_DISABLE=1 - that drops NCCL back to TCP and cuts
+      # throughput by ~4x. Use RoCE v2 (NCCL_IB_GID_INDEX=3) over the CX-7.
+      # Confirmed by NVIDIA:
       #   https://forums.developer.nvidia.com/t/dgx-spark-gpudirect-rdma/348787
       #   https://nvidia.custhelp.com/app/answers/detail/a_id/5780
-      # Use TCP sockets over the QSFP (NCCL_SOCKET_IFNAME) instead.
-      - NCCL_IB_DISABLE=1
+      - NCCL_IB_DISABLE=0
+      - NCCL_IB_HCA=${IB_HCA}
+      - NCCL_IB_GID_INDEX=3
       - NCCL_NET_GDR_LEVEL=0
       - NCCL_ALGO=Ring
       - NCCL_MIN_NCHANNELS=4
@@ -106,11 +109,14 @@ services:
       - MASTER_ADDR=${HEAD_IP}
       - MN_IF_NAME=${QSFP_IFACE}
       - SAFETENSORS_FAST_GPU=1
-      # GPUDirect RDMA is NOT supported on GB10/DGX Spark (unified-memory SoC).
-      # Forcing NCCL onto IB/RDMA hard-locks the SoC. Confirmed by NVIDIA:
+      # GPUDirect RDMA (GDR) is NOT supported on GB10/DGX Spark (unified-memory SoC).
+      # NCCL_NET_GDR_LEVEL=0 disables GDR while keeping CPU-side RoCE active.
+      # DO NOT set NCCL_IB_DISABLE=1 - use RoCE v2 over the CX-7 for full throughput.
+      # Confirmed by NVIDIA:
       #   https://forums.developer.nvidia.com/t/dgx-spark-gpudirect-rdma/348787
-      # Use TCP sockets over the QSFP (NCCL_SOCKET_IFNAME) instead.
-      - NCCL_IB_DISABLE=1
+      - NCCL_IB_DISABLE=0
+      - NCCL_IB_HCA=${IB_HCA}
+      - NCCL_IB_GID_INDEX=3
       - NCCL_NET_GDR_LEVEL=0
       - NCCL_ALGO=Ring
       - NCCL_MIN_NCHANNELS=4

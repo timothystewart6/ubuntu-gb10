@@ -258,6 +258,9 @@ Expected bandwidth: ~92-100 Gbps per port. Two ports combined: ~185-200 Gbps tot
 | `OMPI_MCA_btl_tcp_if_include` | `enp1s0f1np1` (or active) | MPI TCP transport interface                  |
 | `NCCL_DEBUG`                | `INFO` (optional)          | Verbose NCCL logging for debugging           |
 | `NCCL_IB_DISABLE`           | `0` (default)              | Keep at 0 to enable RoCE over CX-7           |
+| `NCCL_IB_HCA`               | `mlx5_0`                   | Pin NCCL to the active CX-7 port; verify with `ibdev2netdev` |
+| `NCCL_IB_GID_INDEX`         | `3`                        | Select RoCE v2 GID (IPv4-mapped IPv6 address) |
+| `NCCL_NET_GDR_LEVEL`        | `0`                        | Disable GPUDirect RDMA (unsafe on unified-memory SoC); CPU-side RoCE remains active |
 
 ---
 
