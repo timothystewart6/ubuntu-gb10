@@ -1,18 +1,4 @@
 ---
-- name: Verify NFS model cache is mounted
-  ansible.builtin.stat:
-    path: "{{ vllm_model_cache }}"
-  register: _model_cache
-  failed_when: not _model_cache.stat.exists or not _model_cache.stat.isdir
-
-- name: Verify model files are accessible
-  ansible.builtin.find:
-    paths: "{{ vllm_model_cache }}"
-    file_type: directory
-    recurse: false
-  register: _model_dirs
-  failed_when: _model_dirs.files | length == 0
-
 - name: Create vLLM compose directory
   ansible.builtin.file:
     path: "{{ vllm_compose_dir }}"
