@@ -1,0 +1,8 @@
+network:
+  version: 2
+  ethernets:
+    enp1s0f0np0:
+      addresses:
+        - {{ cx7_node_ip }}/{{ cx7_prefix_len }}
+    enp1s0f1np1:
+      link-local: [ ipv4 ]

@@ -2,17 +2,10 @@
 # -------------------------------------------------------------------------
 # CX-7 network interface configuration
 # -------------------------------------------------------------------------
-- name: Write netplan config for CX-7 interfaces (link-local)
-  ansible.builtin.copy:
+- name: Write netplan config for CX-7 interfaces (static point-to-point IPs)
+  ansible.builtin.template:
+    src: 40-cx7.yaml.j2
     dest: /etc/netplan/40-cx7.yaml
-    content: |
-      network:
-        version: 2
-        ethernets:
-          enp1s0f0np0:
-            link-local: [ ipv4 ]
-          enp1s0f1np1:
-            link-local: [ ipv4 ]
     owner: root
     group: root
     mode: '0600'

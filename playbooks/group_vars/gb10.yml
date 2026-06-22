@@ -1,9 +1,28 @@
 ---
 # NVIDIA driver and CUDA versions - update when upgrading
 nvidia_driver_version: "580"
+# Full package version - used to pin packages and prevent cross-series mismatches
+nvidia_package_version: "580.167.08-1ubuntu1"
 cuda_version: "13-0"
 
 # MOK password for Secure Boot key enrollment.
 # Leave empty to skip MOK enrollment (enroll manually at console after first reboot).
 # Override at runtime: ansible-playbook site.yml -e mok_password=yourpassword
 mok_password: ""
+
+# vLLM Ray cluster node IPs (management network, stable across reboots)
+vllm_head_ip: "192.168.10.66"
+vllm_worker_ip: "192.168.10.67"
+
+# CX-7 QSFP static IPs for Ray and NCCL traffic (point-to-point /30)
+cx7_head_ip: "10.10.0.1"
+cx7_worker_ip: "10.10.0.2"
+cx7_prefix_len: "30"
+
+# HF token - pass at runtime, never commit: -e vllm_hf_token=hf_...
+vllm_hf_token: ""
+
+# Users to add to the docker group
+docker_users:
+  - automation
+  - serveradmin

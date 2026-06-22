@@ -33,3 +33,9 @@
     # ansible-playbook site.yml --tags dual_node
     - role: dual_node
       tags: dual_node
+
+    # vllm_cluster: deploy vLLM Ray cluster (head on gb10-1, worker on gb10-2).
+    # Requires NFS mount at /mnt/llm/models/huggingface on both nodes.
+    # ansible-playbook site.yml --tags vllm -e vllm_hf_token=hf_...
+    - role: vllm_cluster
+      tags: vllm
