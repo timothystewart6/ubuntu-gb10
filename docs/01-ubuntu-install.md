@@ -340,17 +340,38 @@ ls /dev/watchdog*             # No such file or directory
 
 ### Fix
 
-Load the driver so the kernel adopts the running watchdog and keeps it alive
-while the system is healthy. A genuine kernel freeze stops the keepalive and the
-watchdog resets the box within ~10 s, so real-hang recovery is retained.
+The naive fix - `modprobe sbsa_gwdt` plus a line in `/etc/modules-load.d/` -
+appears to work at provisioning time because `modprobe` bypasses soft blacklists
+directly. **It silently breaks on the first reboot.**
+
+The `linux-nvidia-hwe` kernel package ships a per-kernel blacklist file:
+```
+/usr/lib/modprobe.d/blacklist_linux-hwe-6.17_6.17.0-35-generic.conf
+```
+containing `blacklist sbsa_gwdt`. At every boot, `systemd-modules-load.service`
+sees this blacklist and silently skips the module - your `sbsa_gwdt.conf` in
+`/etc/modules-load.d/` is ignored. The blacklist is reinstalled with every kernel
+package update, so an `/etc/modprobe.d/` override is also not sufficient.
+
+The reliable fix is to load the module from the **initramfs** - before systemd
+starts and before any `/usr/lib/modprobe.d/` blacklist is evaluated:
 
 ```bash
-# Load it now
-sudo modprobe sbsa_gwdt
-
-# Persist across reboots
+# Also load via modules-load.d as a belt-and-suspenders fallback
 echo sbsa_gwdt | sudo tee /etc/modules-load.d/sbsa_gwdt.conf
+
+# Add to initramfs - this is what actually survives reboots and kernel updates
+echo 'sbsa_gwdt' | sudo tee -a /etc/initramfs-tools/modules
+sudo update-initramfs -u -k all
+
+# Load it right now without waiting for a reboot
+sudo modprobe sbsa_gwdt
 ```
+
+`/etc/initramfs-tools/modules` is not owned by any package. When a new kernel is
+installed, `update-initramfs` runs automatically and rebuilds the initramfs,
+pulling in everything listed in that file - so the fix persists across kernel
+updates even when the new kernel reinstalls its blacklist.
 
 Verify it is active:
 

@@ -101,13 +101,24 @@
   notify: restart journald
 
 # The GB10/GX10 firmware arms the ARM SBSA generic watchdog at boot (~20 min,
-# 2-stage) and expects the OS to take ownership of it. DGX OS does NOT load the
-# sbsa_gwdt driver by default, so the watchdog is never serviced and hard-resets
-# the box every ~20 min - even when completely idle (no docker/GPU workload).
-# Loading the driver makes the kernel adopt the running watchdog and keep it
-# alive while healthy (CONFIG_WATCHDOG_HANDLE_BOOT_ENABLED); a genuine kernel
-# freeze stops the keepalive worker and the HW watchdog resets the box within
-# ~10s, so real-hang recovery is retained.
+# 2-stage) and expects the OS to take ownership of it. Stock Ubuntu does NOT
+# load sbsa_gwdt by default, so the watchdog fires on schedule and hard-resets
+# the box every ~20 min - even completely idle.
+#
+# Why modules-load.d alone is NOT enough:
+# The linux-nvidia-hwe kernel package ships a per-kernel blacklist file:
+#   /usr/lib/modprobe.d/blacklist_linux-hwe-<ver>_<uname-r>.conf
+# containing "blacklist sbsa_gwdt". systemd-modules-load.service sees this at
+# every boot and silently skips the module even when sbsa_gwdt.conf exists in
+# /etc/modules-load.d/. The blacklist is reinstalled on every kernel update.
+# The modprobe task below works at provisioning time because direct modprobe
+# bypasses soft blacklists - but the fix evaporates on first reboot.
+#
+# Solution: load from initramfs (before systemd, before any /usr/lib/modprobe.d/
+# blacklist is evaluated). /etc/initramfs-tools/modules is not owned by any
+# package; update-initramfs runs automatically on kernel install and pulls it in,
+# so the fix persists across kernel updates.
+# Ref: docs/01-ubuntu-install.md - Step 6
 - name: Load SBSA generic watchdog driver at boot (stops ~20-min firmware watchdog resets)
   ansible.builtin.copy:
     dest: /etc/modules-load.d/sbsa_gwdt.conf
@@ -118,6 +129,13 @@
     owner: root
     group: root
     mode: '0644'
+
+- name: Load SBSA watchdog in initramfs (bypasses kernel package blacklist on every boot)
+  ansible.builtin.lineinfile:
+    path: /etc/initramfs-tools/modules
+    line: "sbsa_gwdt  # SBSA watchdog - must load before systemd to bypass kernel blacklist"
+    create: yes
+  notify: update initramfs
 
 - name: Load SBSA generic watchdog driver now
   ansible.builtin.command: modprobe sbsa_gwdt
