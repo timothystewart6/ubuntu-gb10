@@ -338,49 +338,122 @@ lsmod | grep sbsa_gwdt        # (empty)
 ls /dev/watchdog*             # No such file or directory
 ```
 
-### Fix
+### Why the naive fixes silently fail
 
-The naive fix - `modprobe sbsa_gwdt` plus a line in `/etc/modules-load.d/` -
-appears to work at provisioning time because `modprobe` bypasses soft blacklists
-directly. **It silently breaks on the first reboot.**
+There are **two independent failure modes** that together prevent `sbsa_gwdt` from
+loading at boot. Understanding both is required to fix it correctly.
 
-The `linux-nvidia-hwe` kernel package ships a per-kernel blacklist file:
+**Failure mode 1 - `systemd-modules-load.service` + libkmod blacklist enforcement**
+
+The `linux-hwe-6.17` kernel package ships:
 ```
 /usr/lib/modprobe.d/blacklist_linux-hwe-6.17_6.17.0-35-generic.conf
 ```
-containing `blacklist sbsa_gwdt`. At every boot, `systemd-modules-load.service`
-sees this blacklist and silently skips the module - your `sbsa_gwdt.conf` in
-`/etc/modules-load.d/` is ignored. The blacklist is reinstalled with every kernel
-package update, so an `/etc/modprobe.d/` override is also not sufficient.
+containing `blacklist sbsa_gwdt`. The `systemd-modules-load` service uses the
+libkmod C API (`kmod_module_probe_insert_module`) which enforces blacklists even
+for explicit module-name loads. At every boot you will see:
 
-The reliable fix is to load the module from the **initramfs** - before systemd
-starts and before any `/usr/lib/modprobe.d/` blacklist is evaluated:
+```
+systemd-modules-load[621]: Module 'sbsa_gwdt' is deny-listed (by kmod)
+```
+
+This means any entry in `/etc/modules-load.d/sbsa_gwdt.conf` is silently ignored.
+The blacklist file is reinstalled on every kernel update, so an `/etc/modprobe.d/`
+override file is also not sufficient - there is no modprobe config syntax to
+"un-blacklist" a module.
+
+**Failure mode 2 - initramfs conf/modules approach also blocked**
+
+`update-initramfs` bundles the entire `/usr/lib/modprobe.d/` tree INTO the
+initramfs image. When the initramfs init script tries to load modules listed in
+`conf/modules` (sourced from `/etc/initramfs-tools/modules`), it calls `modprobe`,
+which finds the bundled blacklist and refuses - before the real OS even starts.
+Adding `sbsa_gwdt` to `/etc/initramfs-tools/modules` includes the `.ko` in the
+initramfs but **does not cause it to be loaded**; modprobe blocks it at the same
+point.
+
+### Fix - two layers
+
+Both layers are needed because the first (initramfs insmod) fixes the initramfs
+phase, and the second (systemd service) is the fallback for any boot where the
+initramfs script does not run.
+
+**Layer 1 - initramfs `init-premount` script using `insmod`**
+
+`insmod` loads a `.ko` directly and bypasses ALL kmod configuration including
+blacklists. Create a script that runs during the initramfs phase, before any
+systemd or kmod blacklist enforcement:
 
 ```bash
-# Also load via modules-load.d as a belt-and-suspenders fallback
-echo sbsa_gwdt | sudo tee /etc/modules-load.d/sbsa_gwdt.conf
-
-# Add to initramfs - this is what actually survives reboots and kernel updates
+# Include the module in the initramfs image
 echo 'sbsa_gwdt' | sudo tee -a /etc/initramfs-tools/modules
-sudo update-initramfs -u -k all
 
-# Load it right now without waiting for a reboot
+# Create the init-premount hook (must be executable)
+sudo tee /etc/initramfs-tools/scripts/init-premount/sbsa_gwdt > /dev/null << 'HOOK'
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case $1 in prereqs) prereqs; exit 0;; esac
+
+# insmod bypasses all kmod blacklists. modprobe in the initramfs sees the
+# linux-hwe package blacklist bundled inside the initramfs image and refuses.
+ko=$(find /usr/lib/modules/$(uname -r)/kernel/drivers/watchdog/ \
+     -name 'sbsa_gwdt.ko*' 2>/dev/null | head -1)
+[ -n "$ko" ] && insmod "$ko" 2>/dev/null || true
+HOOK
+sudo chmod 0755 /etc/initramfs-tools/scripts/init-premount/sbsa_gwdt
+
+sudo update-initramfs -u -k all
+```
+
+Both files live under `/etc/initramfs-tools/` which is not owned by any package.
+On every kernel update, `update-initramfs` runs automatically and bundles them
+into the new initramfs, so the fix persists across kernel updates.
+
+**Layer 2 - systemd service using the `modprobe` binary**
+
+The `modprobe` binary (unlike the libkmod API) treats `blacklist` as a soft
+blacklist for explicit module-name loads and bypasses it. Create a one-shot
+service that runs after `systemd-modules-load` has already failed:
+
+```bash
+sudo tee /etc/systemd/system/sbsa-watchdog-load.service > /dev/null << 'SVC'
+[Unit]
+Description=Load SBSA watchdog driver (bypass linux-hwe kernel package blacklist)
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe sbsa_gwdt
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now sbsa-watchdog-load.service
+```
+
+> **Ordering note:** Do NOT add `Before=basic.target` to this unit. systemd
+> detects an ordering cycle and silently drops the service's start job - the
+> module never loads. `WantedBy=multi-user.target` is sufficient; the system
+> reaches multi-user well within the 20-minute watchdog window.
+
+**Load it right now without rebooting:**
+
+```bash
 sudo modprobe sbsa_gwdt
 ```
 
-`/etc/initramfs-tools/modules` is not owned by any package. When a new kernel is
-installed, `update-initramfs` runs automatically and rebuilds the initramfs,
-pulling in everything listed in that file - so the fix persists across kernel
-updates even when the new kernel reinstalls its blacklist.
-
-Verify it is active:
+**Verify it is active:**
 
 ```bash
 sudo dmesg | grep -i sbsa-gwdt
 # -> sbsa-gwdt sbsa-gwdt.0: Initialized with 10s timeout @ 1000000000 Hz, action=0. [enabled]
 
-cat /sys/class/watchdog/watchdog0/identity   # -> SBSA Generic Watchdog
-cat /sys/class/watchdog/watchdog0/timeout    # -> 10
+systemctl is-active sbsa-watchdog-load.service   # -> active
+lsmod | grep sbsa_gwdt                           # -> sbsa_gwdt  20480  1
+cat /sys/class/watchdog/watchdog0/identity       # -> SBSA Generic Watchdog
 ```
 
 The box should now run indefinitely past the 20-minute mark.

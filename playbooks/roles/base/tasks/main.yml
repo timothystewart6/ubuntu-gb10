@@ -105,39 +105,102 @@
 # load sbsa_gwdt by default, so the watchdog fires on schedule and hard-resets
 # the box every ~20 min - even completely idle.
 #
-# Why modules-load.d alone is NOT enough:
-# The linux-nvidia-hwe kernel package ships a per-kernel blacklist file:
-#   /usr/lib/modprobe.d/blacklist_linux-hwe-<ver>_<uname-r>.conf
-# containing "blacklist sbsa_gwdt". systemd-modules-load.service sees this at
-# every boot and silently skips the module even when sbsa_gwdt.conf exists in
-# /etc/modules-load.d/. The blacklist is reinstalled on every kernel update.
-# The modprobe task below works at provisioning time because direct modprobe
-# bypasses soft blacklists - but the fix evaporates on first reboot.
+# Why this is hard to fix:
+# Both linux-hwe and linux-nvidia-hwe kernel packages ship per-kernel blacklist
+# files: /usr/lib/modprobe.d/blacklist_linux-hwe-<ver>_<uname-r>.conf containing
+# "blacklist sbsa_gwdt". There are TWO separate failure modes:
 #
-# Solution: load from initramfs (before systemd, before any /usr/lib/modprobe.d/
-# blacklist is evaluated). /etc/initramfs-tools/modules is not owned by any
-# package; update-initramfs runs automatically on kernel install and pulls it in,
-# so the fix persists across kernel updates.
+#   1. systemd-modules-load.service: uses the libkmod API
+#      (kmod_module_probe_insert_module) which enforces blacklists even for
+#      explicit module names. So /etc/modules-load.d/sbsa_gwdt.conf is silently
+#      skipped every boot with "deny-listed (by kmod)".
+#
+#   2. initramfs conf/modules approach: update-initramfs bundles the
+#      /usr/lib/modprobe.d/blacklist files INTO the initramfs image. When the
+#      initramfs init script calls modprobe for modules listed in conf/modules,
+#      the bundled blacklist blocks the load before any real OS userspace starts.
+#
+# Solution - two layers:
+#
+#   A. initramfs init-premount script using insmod (not modprobe). insmod loads
+#      a .ko directly and bypasses ALL kmod configuration including blacklists.
+#      The module is already included in the initramfs image via the modules
+#      lineinfile task below; the init-premount script just loads it with insmod.
+#
+#   B. systemd sbsa-watchdog-load.service: runs the modprobe BINARY (not the
+#      libkmod API). The modprobe binary treats "blacklist" as a soft blacklist
+#      for explicit module name loads and bypasses it. Confirmed: sudo modprobe
+#      sbsa_gwdt succeeds even when the blacklist file exists. This service is
+#      the post-initramfs fallback for any boot where the initramfs script fails.
+#
+# Both survive kernel updates: initramfs-tools rebuilds on every kernel install
+# and pulls in both the modules list and the hook/scripts from /etc/initramfs-tools/.
+# The systemd service is persistent in /etc/systemd/system/ and not owned by any
+# kernel package.
 # Ref: docs/01-ubuntu-install.md - Step 6
-- name: Load SBSA generic watchdog driver at boot (stops ~20-min firmware watchdog resets)
-  ansible.builtin.copy:
-    dest: /etc/modules-load.d/sbsa_gwdt.conf
-    content: |
-      # GB10/GX10 firmware arms the SBSA generic watchdog; the OS must own it or
-      # the unserviced watchdog hard-resets the box every ~20 min. See base role.
-      sbsa_gwdt
-    owner: root
-    group: root
-    mode: '0644'
-
-- name: Load SBSA watchdog in initramfs (bypasses kernel package blacklist on every boot)
+- name: Include SBSA watchdog module in initramfs image
   ansible.builtin.lineinfile:
     path: /etc/initramfs-tools/modules
-    line: "sbsa_gwdt  # SBSA watchdog - must load before systemd to bypass kernel blacklist"
+    line: "sbsa_gwdt  # SBSA watchdog - include in initramfs; loaded via init-premount insmod"
     create: yes
   notify: update initramfs
 
-- name: Load SBSA generic watchdog driver now
+- name: Load SBSA watchdog in initramfs via insmod (bypasses bundled kmod blacklist)
+  ansible.builtin.copy:
+    dest: /etc/initramfs-tools/scripts/init-premount/sbsa_gwdt
+    content: |
+      #!/bin/sh
+      PREREQ=""
+      prereqs() { echo "$PREREQ"; }
+      case $1 in prereqs) prereqs; exit 0;; esac
+
+      # insmod bypasses all kmod blacklists. modprobe in the initramfs sees the
+      # linux-hwe/linux-nvidia-hwe blacklist bundled inside the initramfs image
+      # and refuses to load sbsa_gwdt. insmod has no such restriction.
+      # The GB10/GX10 firmware SBSA watchdog fires at ~20 min if unserviced.
+      ko=$(find /usr/lib/modules/$(uname -r)/kernel/drivers/watchdog/ \
+           -name 'sbsa_gwdt.ko*' 2>/dev/null | head -1)
+      [ -n "$ko" ] && insmod "$ko" 2>/dev/null || true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: update initramfs
+
+- name: Create sbsa-watchdog-load systemd service (post-initramfs fallback using modprobe binary)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sbsa-watchdog-load.service
+    content: |
+      [Unit]
+      Description=Load SBSA watchdog driver (bypass linux-hwe kernel package blacklist)
+      Documentation=https://github.com/timothystewart6/ubuntu-gb10
+
+      [Service]
+      Type=oneshot
+      # Use modprobe binary directly - it treats "blacklist" as a soft blacklist
+      # for explicit module-name loads and bypasses it. libkmod API (used by
+      # systemd-modules-load) enforces it strictly. This is why we need a separate
+      # service rather than relying on /etc/modules-load.d/sbsa_gwdt.conf.
+      # NOTE: Before=/After= ordering against basic.target causes a systemd cycle
+      # and the job gets dropped. WantedBy=multi-user.target is sufficient - the
+      # system reaches multi-user well within the 20-min firmware watchdog window.
+      ExecStart=/sbin/modprobe sbsa_gwdt
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+  notify: systemd daemon-reload
+
+- name: Enable sbsa-watchdog-load service
+  ansible.builtin.systemd:
+    name: sbsa-watchdog-load.service
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Load SBSA generic watchdog driver now (provisioning-time immediate load)
   ansible.builtin.command: modprobe sbsa_gwdt
   changed_when: false
   failed_when: false
