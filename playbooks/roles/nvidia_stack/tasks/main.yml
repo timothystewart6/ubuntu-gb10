@@ -1,19 +1,112 @@
 ---
-- name: Check if NVIDIA repo files already installed
-  ansible.builtin.stat:
-    path: /etc/apt/sources.list.d/dgx.sources
-  register: nvidia_repos
+# Bootstrap the NVIDIA GPG keyrings before writing the .sources files below.
+#
+# The .sources files reference /usr/share/keyrings/dgx_debian_prod.gpg and
+# cuda_debian_prod.gpg, which ship inside dgx-repo-files.tgz and are owned by
+# the nvidia-repo-keys package. They are NOT installed by this role or base,
+# and doca_ofed only installs nvidia-repo-keys when a ConnectX-7 NIC is present
+# (and it runs after this role). Extract just the keyrings + apt preferences
+# from the tarball now so a fresh host has the Signed-By files before the first
+# apt update. The broken sources files inside the tarball are intentionally not
+# extracted - we write the corrected versions below.
+- name: Bootstrap NVIDIA repo keyrings from dgx-repo-files.tgz
+  ansible.builtin.command: >
+    curl -fsSL https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/dgx-repo-files.tgz
+    | tar xzf - -C / ./usr/share/keyrings ./etc/apt/preferences.d
+  args:
+    creates: /usr/share/keyrings/dgx_debian_prod.gpg
+  changed_when: false
 
-- name: Download and extract NVIDIA repo files
-  ansible.builtin.shell:
-    cmd: >
-      curl -fsSL https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/dgx-repo-files.tgz
-      | tar xzf - -C /
-  when: not nvidia_repos.stat.exists
+# The dgx-repo-files.tgz sources entry points at the broken `baseos/8` URL.
+# Write the working .sources files directly instead, matching what the GX10s run
+# in production. This matches the split layout and avoids the broken tgz path.
+- name: Fix NVIDIA DGX repo source to the working guide URL
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/dgx.sources
+    content: |
+      # NVIDIA DGX base OS repo. Uses the non-8 path which is the live repo
+      # (the baseos/8 path ships in dgx-repo-files.tgz but 404s).
+      # Components: common provides nvidia-system-*/nvidia-peermem-loader,
+      # dgx provides the remainder.
+      Types: deb
+      URIs: https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/
+      Suites: noble noble-updates
+      Components: common dgx
+      Signed-By: /usr/share/keyrings/dgx_debian_prod.gpg
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure CUDA compute repo source present (sbsa / arm64)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/cuda-compute-repo.sources
+    content: |
+      # NVIDIA CUDA compute repo (sbsa = ARM64 / GB10).
+      Types: deb
+      URIs: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/
+      Suites: /
+      Signed-By: /usr/share/keyrings/cuda_debian_prod.gpg
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure NVIDIA HWE kernel pinned to 6.x (block 7.x)
+  # The linux-image-nvidia-hwe-24.04 metapackage now tracks 7.x in the archive.
+  # Pin the 6.x line (validated on the GX10s) so a fresh host stays on it, and
+  # block 7.x until it is validated for the GB10 stack.
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/gb10-kernel.pref
+    content: |
+      # Keep the GB10 on the validated 6.x NVIDIA HWE kernel line.
+      Package: linux-nvidia-hwe-24.04 linux-image-nvidia-hwe-24.04 linux-headers-nvidia-hwe-24.04 linux-tools-nvidia-hwe-24.04
+      Pin: version 6.*
+      Pin-Priority: 1001
+
+      Package: linux-nvidia-hwe-24.04 linux-image-nvidia-hwe-24.04 linux-headers-nvidia-hwe-24.04 linux-tools-nvidia-hwe-24.04
+      Pin: version 7.*
+      Pin-Priority: -1
+    owner: root
+    group: root
+    mode: '0644'
 
 - name: Update apt cache after repo setup
   ansible.builtin.apt:
     update_cache: yes
+
+- name: Resolve the latest available NVIDIA HWE kernel on the pinned 6.x line
+  # Because the linux-image-nvidia-hwe-24.04 metapackage tracks 7.x and the pin
+  # blocks 7.x, a fresh host cannot get 6.x from the metapackage. Query apt for
+  # the highest available linux-image-<6>.*-nvidia instead and install the
+  # specific versioned packages so a fresh host lands on the validated line.
+  ansible.builtin.command: >
+    bash -c 'apt-cache pkgnames | grep -E "^linux-image-[0-9].*-nvidia$"
+    | while read p; do v=$(apt-cache policy "$p" | awk "/^  Candidate:/{print \$2; exit}");
+    [ -n "$v" ] && [ "${v#6.}" != "$v" ] && echo "$p $v"; done | sort -V | tail -1 | awk "{print \$1}"'
+  register: nvidia_stack_kernel_pkg_out
+  changed_when: false
+  check_mode: false
+
+- name: Set the resolved NVIDIA HWE kernel version
+  ansible.builtin.set_fact:
+    nvidia_stack_kernel_ver: "{{ nvidia_stack_kernel_pkg_out.stdout | regex_replace('^linux-image-', '') | regex_replace('-nvidia$', '') }}"
+  when: nvidia_stack_kernel_pkg_out.stdout | length > 0
+
+- name: Install NVIDIA HWE kernel (resolved 6.x)
+  ansible.builtin.apt:
+    name:
+      - "linux-image-{{ nvidia_stack_kernel_ver | default('6.17.0-1032') }}-nvidia"
+      - "linux-headers-{{ nvidia_stack_kernel_ver | default('6.17.0-1032') }}-nvidia"
+      - "linux-modules-{{ nvidia_stack_kernel_ver | default('6.17.0-1032') }}-nvidia"
+      - "linux-modules-nvidia-fs-{{ nvidia_stack_kernel_ver | default('6.17.0-1032') }}-nvidia"
+    state: present
+  register: hwe_kernel_install
+
+- name: Install NVIDIA HWE tools + peermem loader
+  ansible.builtin.apt:
+    name:
+      - "linux-tools-{{ nvidia_stack_kernel_ver | default('6.17.0-1032') }}-nvidia"
+      - nvidia-peermem-loader
+    state: present
 
 - name: Install NVIDIA system metapackages
   ansible.builtin.apt:
@@ -21,15 +114,7 @@
       - nvidia-system-core
       - nvidia-system-utils
       - nvidia-system-extra
-      - linux-tools-nvidia-hwe-24.04
-      - nvidia-peermem-loader
     state: present
-
-- name: Install HWE kernel
-  ansible.builtin.apt:
-    name: linux-nvidia-hwe-24.04
-    state: present
-  register: hwe_kernel_install
 
 - name: Reboot to load HWE kernel
   ansible.builtin.reboot:

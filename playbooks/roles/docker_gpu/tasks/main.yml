@@ -81,10 +81,7 @@
     mode: '0644'
   notify: restart docker
 
-- name: Flush handlers
-  ansible.builtin.meta: flush_handlers
-
-- name: Install cron
+- name: Ensure cron is installed and running
   ansible.builtin.apt:
     name: cron
     state: present
@@ -127,3 +124,6 @@
     owner: root
     group: root
     mode: '0644'
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

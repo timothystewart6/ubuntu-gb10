@@ -1,4 +1,7 @@
 ---
 nvidia_driver_version: "580"
 cuda_version: "13-0"
+# CUDA base image tag used in the container GPU-access verify step. Stays in
+# sync with the cuda_version toolkit line (13-0 <-> 13.x). Override if the
+# container image tag diverges from the toolkit line.
 cuda_base_image_tag: "13.2.0"

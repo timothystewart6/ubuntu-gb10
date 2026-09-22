@@ -4,6 +4,12 @@
     update_cache: yes
     upgrade: dist
     cache_valid_time: 0
+    # The nvidia-driver-pinning-<ver> source pin (priority 1000) can require
+    # dropping drifted NVIDIA userspace packages back to the pinned line. Without
+    # allow_downgrade, apt aborts with "Packages were downgraded and -y was used
+    # without --allow-downgrades" on any host that has drifted (e.g. a borrowed
+    # image with NVIDIA userspace at a newer version than the pinned branch).
+    allow_downgrade: true
 
 - name: Purge unattended-upgrades
   ansible.builtin.apt:

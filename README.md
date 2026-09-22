@@ -57,9 +57,9 @@ may trail the DGX Spark Founders Edition by a release or two.
 | Component           | Version        | Notes                                      |
 |---------------------|----------------|--------------------------------------------|
 | DGX OS              | 7.5.0          | Reference baseline (Founders Edition)      |
-| NVIDIA GPU Driver   | 580.167.08     | Open kernel modules, required for Blackwell|
-| NVIDIA CUDA Toolkit | 13.0.2         |                                            |
-| Canonical Kernel    | 6.17 (HWE)     | `linux-nvidia-hwe-24.04`                   |
+| NVIDIA GPU Driver   | 580.178.04     | Open kernel modules, required for Blackwell|
+| NVIDIA CUDA Toolkit | 13.0           |                                            |
+| Canonical Kernel    | 6.17 (HWE)     | 6.17.0-1032-nvidia                         |
 | Ubuntu Base         | 24.04 LTS      | arm64                                      |
 
 > **Unified Memory Note:** The GB10 has no dedicated VRAM. The GPU and CPU share
