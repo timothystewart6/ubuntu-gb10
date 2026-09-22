@@ -131,12 +131,12 @@ ssh -o StrictHostKeyChecking=no automation@<node1-cx7-ip> hostname
 ## Step 4 - Build NCCL from Source
 
 The NCCL apt package does not include Blackwell-specific (`compute_121`)
-optimizations. Build from source on **both nodes**:
+optimizations. Build from source on **both nodes** to get the SM_121 kernels:
 
 ```bash
 sudo apt-get install -y libopenmpi-dev
 
-git clone -b v2.28.9-1 https://github.com/NVIDIA/nccl.git ~/nccl/
+git clone -b v2.31.2-1 https://github.com/NVIDIA/nccl.git ~/nccl/
 cd ~/nccl/
 make -j src.build NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
 ```
