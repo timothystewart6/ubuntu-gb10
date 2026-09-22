@@ -81,15 +81,49 @@
     mode: '0644'
   notify: restart docker
 
-- name: Remove legacy docker prune cron from prior runs
-  # Dropped the weekly docker prune scheduled task. Remove the cron entry and
-  # script so a rerun on a previously-configured host actually disables it.
+- name: Ensure cron is installed and running
+  ansible.builtin.apt:
+    name: cron
+    state: present
+
+- name: Enable and start cron
+  ansible.builtin.systemd:
+    name: cron
+    enabled: yes
+    state: started
+
+- name: Create /opt/actions-runner directory
   ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /etc/cron.d/docker-prune
-    - /opt/actions-runner/prune-docker.sh
+    path: /opt/actions-runner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy weekly docker prune script
+  ansible.builtin.copy:
+    dest: /opt/actions-runner/prune-docker.sh
+    content: |
+      #!/bin/bash
+      # Weekly Docker system prune - removes unused images, containers, and networks.
+      # Volumes are excluded to protect persistent data (model cache, etc.).
+      set -euo pipefail
+      echo "[docker-prune] starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      docker system prune -af
+      echo "[docker-prune] done at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Schedule weekly docker prune (Sunday 03:00 UTC)
+  ansible.builtin.copy:
+    dest: /etc/cron.d/docker-prune
+    content: |
+      # Weekly Docker system prune - see /opt/actions-runner/prune-docker.sh
+      0 3 * * 0 root /opt/actions-runner/prune-docker.sh >> /var/log/docker-prune.log 2>&1
+    owner: root
+    group: root
+    mode: '0644'
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers

@@ -218,6 +218,42 @@ sudo systemctl restart docker
 
 ---
 
+## Step 7 - Schedule a Weekly Docker Prune
+
+Long-running GPU/host processes generate a steady stream of unused images,
+containers, and build layers. Schedule a weekly Docker system prune to reclaim
+that space. Volumes are excluded so persistent data (model cache, etc.) is
+protected.
+
+Write the prune script:
+
+```bash
+sudo mkdir -p /opt/actions-runner
+sudo tee /opt/actions-runner/prune-docker.sh > /dev/null <<'PRUNE'
+#!/bin/bash
+# Weekly Docker system prune - removes unused images, containers, and networks.
+# Volumes are excluded to protect persistent data (model cache, etc.).
+set -euo pipefail
+echo "[docker-prune] starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+docker system prune -af
+echo "[docker-prune] done at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+PRUNE
+sudo chmod +x /opt/actions-runner/prune-docker.sh
+```
+
+Schedule it weekly (Sunday 03:00 UTC):
+
+```bash
+sudo tee /etc/cron.d/docker-prune > /dev/null <<'CRON'
+# Weekly Docker system prune - see /opt/actions-runner/prune-docker.sh
+0 3 * * 0 root /opt/actions-runner/prune-docker.sh >> /var/log/docker-prune.log 2>&1
+CRON
+```
+
+The cron daemon reads `/etc/cron.d/` entries immediately, so no reload is needed.
+
+---
+
 ## Next Step
 
 Continue to [04-doca-ofed.md](04-doca-ofed.md) for ConnectX-7 DOCA-OFED drivers
