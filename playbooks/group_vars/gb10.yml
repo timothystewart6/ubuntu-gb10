@@ -1,8 +1,9 @@
 ---
 # NVIDIA driver and CUDA versions - update when upgrading
 nvidia_driver_version: "580"
-# Full package version - used to pin packages and prevent cross-series mismatches
-nvidia_package_version: "580.167.08-1ubuntu1"
+# Full package version - used to pin packages and prevent cross-series mismatches.
+# Current validated version on the GB10/GX10 stack (driver branch 580).
+nvidia_package_version: "580.178.04-1ubuntu1"
 cuda_version: "13-0"
 
 # MOK password for Secure Boot key enrollment.

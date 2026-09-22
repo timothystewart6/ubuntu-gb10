@@ -31,9 +31,9 @@ This has two important implications:
 
 | Component           | Version        |
 |---------------------|----------------|
-| NVIDIA GPU Driver   | 580.167.08     |
-| NVIDIA CUDA Toolkit | 13.0.2         |
-| Kernel              | 6.17.0-1021-nvidia (HWE) |
+| NVIDIA GPU Driver   | 580.178.04     |
+| NVIDIA CUDA Toolkit | 13.0           |
+| Kernel              | 6.17.0-1032-nvidia (HWE) |
 
 > The ASUS GX10 is a GB10 partner system. DGX Spark Founders Edition versions
 > are used as the reference baseline. Partner systems may trail by one release.
@@ -60,6 +60,20 @@ This downloads a tarball from NVIDIA that installs:
 # ARM64 systems (GB10 / DGX Spark / ASUS GX10)
 curl https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/dgx-repo-files.tgz \
   | sudo tar xzf - -C /
+```
+
+> **Note:** the `dgx-repo-files.tgz` ships a `dgx.sources` entry pointing at the
+> `baseos/8/` path which 404s. If `apt update` fails on the DGX repo, fix the
+> `dgx.sources` to drop the `/8` and use the working components:
+
+```bash
+sudo tee /etc/apt/sources.list.d/dgx.sources >/dev/null <<'EOF'
+Types: deb
+URIs: https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/
+Suites: noble noble-updates
+Components: common dgx
+Signed-By: /usr/share/keyrings/dgx_debian_prod.gpg
+EOF
 ```
 
 Verify the repo files landed correctly:
@@ -152,9 +166,33 @@ sudo apt install -y nvidia-peermem-loader
 The DGX Spark runs the NVIDIA/Ubuntu HWE kernel, not the standard generic kernel.
 This provides better support for the Grace Blackwell SoC and NVLink-C2C.
 
+> **Note:** the `linux-nvidia-hwe-24.04` metapackage has moved to the 7.x line
+> in the archive. Pin the validated 6.x line first so a fresh host lands on it,
+> then install the specific versioned kernel packages (the metapackage resolves
+> to nothing when 7.x is blocked).
+
 ```bash
-# ARM64 / DGX Spark HWE kernel
-sudo apt install -y linux-nvidia-hwe-24.04
+# Pin the validated 6.x kernel line and block 7.x
+sudo tee /etc/apt/preferences.d/gb10-kernel.pref >/dev/null <<'EOF'
+Package: linux-nvidia-hwe-24.04 linux-image-nvidia-hwe-24.04 linux-headers-nvidia-hwe-24.04 linux-tools-nvidia-hwe-24.04
+Pin: version 6.*
+Pin-Priority: 1001
+
+Package: linux-nvidia-hwe-24.04 linux-image-nvidia-hwe-24.04 linux-headers-nvidia-hwe-24.04 linux-tools-nvidia-hwe-24.04
+Pin: version 7.*
+Pin-Priority: -1
+EOF
+```
+
+Check the latest installed/published 6.x kernel image, then install it:
+
+```bash
+sudo apt update
+# List available 6.x nvidia kernels
+apt-cache search 'linux-image-6.*-nvidia' | sort -V | tail -5
+# Install the latest (adjust to the newest version shown above):
+sudo apt install -y linux-image-6.17.0-1032-nvidia linux-headers-6.17.0-1032-nvidia \
+  linux-modules-6.17.0-1032-nvidia linux-modules-nvidia-fs-6.17.0-1032-nvidia
 ```
 
 Reboot into the new kernel before installing the driver:

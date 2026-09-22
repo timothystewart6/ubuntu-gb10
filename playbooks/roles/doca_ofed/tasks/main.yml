@@ -39,6 +39,10 @@
 - name: Full upgrade to resolve DOCA-OFED dependencies
   ansible.builtin.apt:
     upgrade: full
+    # Same drift-convergence handling as the base role: the driver pin can
+    # require dropping NVIDIA userspace packages back to the pinned line, and
+    # without allow_downgrade the full upgrade aborts on a drifted host.
+    allow_downgrade: true
   when: "'install ok installed' not in doca_ofed_check.stdout"
 
 # -------------------------------------------------------------------------
@@ -64,6 +68,9 @@
   ansible.builtin.command: lsmod
   register: lsmod_out
   changed_when: false
+  # Run even in check mode - modules cannot actually be loaded there, so the
+  # registered var would be empty and the assert below would always fail.
+  check_mode: false
 
 - name: Assert mlx5_core module is loaded
   ansible.builtin.assert:
