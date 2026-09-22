@@ -164,7 +164,7 @@ Expected output includes:
 Run a test container that invokes `nvidia-smi` inside the container:
 
 ```bash
-docker run --gpus=all --rm nvcr.io/nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi
+docker run --gpus=all --rm nvcr.io/nvidia/cuda:13.2.0-base-ubuntu24.04 nvidia-smi
 ```
 
 > This will download the CUDA base container from NVIDIA NGC (requires internet

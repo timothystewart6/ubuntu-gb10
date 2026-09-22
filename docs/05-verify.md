@@ -251,7 +251,7 @@ nvidia-ctk --version
 cat /etc/docker/daemon.json
 
 # Test GPU access inside a container
-docker run --gpus=all --rm nvcr.io/nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi
+docker run --gpus=all --rm nvcr.io/nvidia/cuda:13.2.0-base-ubuntu24.04 nvidia-smi
 ```
 
 ---
@@ -275,8 +275,8 @@ All should print `active`.
 Run the CUDA `nbody` sample to exercise actual GPU compute:
 
 ```bash
-docker run --gpus=all --rm nvcr.io/nvidia/cuda:12.6.2-devel-ubuntu24.04 \
-  bash -c "apt-get install -y cuda-samples-12-6 -qq && \
+docker run --gpus=all --rm nvcr.io/nvidia/cuda:13.2.0-devel-ubuntu24.04 \
+  bash -c "apt-get install -y cuda-samples-13-0 -qq && \
            /usr/local/cuda/samples/5_Domain_Specific/nbody/nbody -benchmark -numbodies=512000 -cpu"
 ```
 
@@ -290,12 +290,12 @@ docker run --gpus=all --rm nvcr.io/nvidia/cuda:12.6.2-devel-ubuntu24.04 \
 | Component           | Check Command                              | Expected Result                                      |
 |---------------------|--------------------------------------------|------------------------------------------------------|
 | Ubuntu 24.04        | `lsb_release -a`                           | Ubuntu 24.04 LTS                                     |
-| Kernel HWE          | `uname -r`                                 | `6.17.x-1021-nvidia`                                 |
+| Kernel HWE          | `uname -r`                                 | `6.17.0-1032-nvidia`                               |
 | Architecture        | `uname -m`                                 | `aarch64`                                            |
 | NVIDIA driver       | `nvidia-smi`                               | Driver 580.x, Persistence On, Memory: Not Supported  |
 | DCGM service        | `systemctl is-active nvidia-dcgm`          | `active`                                             |
-| CUDA toolkit        | `nvcc --version`                           | CUDA release 13.x                                   |
-| NCCL                | `dpkg -l libnccl2`                         | 2.28.9-1+cuda13.0                                    |
+| CUDA toolkit        | `nvcc --version`                           | CUDA release 13.x                                    |
+| NCCL                | `dpkg -l libnccl2`                         | 2.31.2-1+cuda13.4                                    |
 | Docker              | `docker version`                           | Client + Server versions                             |
 | NVIDIA Container TK | `nvidia-ctk --version`                     | Version string                                       |
 | GPU in container    | `docker run --gpus=all ... nvidia-smi`     | Same GPU output as host (Memory: Not Supported OK)   |
