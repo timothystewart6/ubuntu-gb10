@@ -149,8 +149,13 @@ sudo apt install -y nvidia-system-extra
 
 ### Linux perf tools - ARM64 / DGX Spark variant
 
+Install the version-specific linux-tools that matches the nvidia HWE kernel.
+The `linux-tools-nvidia-hwe-24.04` metapackage now tracks the 7.x line, so pin
+and install the matching versioned package instead (see Step 5 for the exact
+6.x version to use):
+
 ```bash
-sudo apt install -y linux-tools-nvidia-hwe-24.04
+sudo apt install -y linux-tools-6.17.0-1032-nvidia
 ```
 
 ### NVIDIA peermem loader - required for GPUDirect RDMA over ConnectX-7
@@ -276,7 +281,7 @@ nvidia-smi
 
 ```terminal
 +-----------------------------------------------------------------------------------------+
-| NVIDIA-SMI 580.167.08             Driver Version: 580.167.08     CUDA Version: 13.0     |
+| NVIDIA-SMI 580.178.04             Driver Version: 580.178.04     CUDA Version: 13.0     |
 +-----------------------------------------+------------------------+----------------------+
 | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
 | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |

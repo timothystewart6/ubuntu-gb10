@@ -137,7 +137,7 @@ nvidia-smi
 
 ```terminal
 +-----------------------------------------------------------------------------------------+
-| NVIDIA-SMI 580.167.08   Driver Version: 580.167.08   CUDA Version: 13.0               |
+| NVIDIA-SMI 580.178.04   Driver Version: 580.178.04   CUDA Version: 13.0               |
 |-----------------------------------------+------------------------+----------------------+
 | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
 | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |

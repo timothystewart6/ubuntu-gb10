@@ -81,5 +81,15 @@
     mode: '0644'
   notify: restart docker
 
+- name: Remove legacy docker prune cron from prior runs
+  # Dropped the weekly docker prune scheduled task. Remove the cron entry and
+  # script so a rerun on a previously-configured host actually disables it.
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cron.d/docker-prune
+    - /opt/actions-runner/prune-docker.sh
+
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers

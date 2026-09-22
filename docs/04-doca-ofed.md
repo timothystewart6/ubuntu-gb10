@@ -134,7 +134,7 @@ separate from the ConnectX-7 high-speed networking. On a working unit (gb10-1 ru
 this chip appears at PCI address `0007:01:00.0` and is managed by the proprietary
 `r8127` driver.
 
-The `r8127` kernel module IS included in the `linux-image-6.17.0-1021-nvidia`
+The `r8127` kernel module IS included in the `linux-image-6.17.0-1032-nvidia`
 package, so it is available on Ubuntu installs with the nvidia kernel.
 
 ### Checking for the chip

@@ -1,8 +1,25 @@
 ---
-# The NVIDIA repo files downloaded as dgx-repo-files.tgz ship a broken
-# `baseos/8` URL that 404s. Write the working .sources files directly instead,
-# matching what the GX10s run in production. This matches the split layout and
-# avoids the broken tgz path entirely.
+# Bootstrap the NVIDIA GPG keyrings before writing the .sources files below.
+#
+# The .sources files reference /usr/share/keyrings/dgx_debian_prod.gpg and
+# cuda_debian_prod.gpg, which ship inside dgx-repo-files.tgz and are owned by
+# the nvidia-repo-keys package. They are NOT installed by this role or base,
+# and doca_ofed only installs nvidia-repo-keys when a ConnectX-7 NIC is present
+# (and it runs after this role). Extract just the keyrings + apt preferences
+# from the tarball now so a fresh host has the Signed-By files before the first
+# apt update. The broken sources files inside the tarball are intentionally not
+# extracted - we write the corrected versions below.
+- name: Bootstrap NVIDIA repo keyrings from dgx-repo-files.tgz
+  ansible.builtin.command: >
+    curl -fsSL https://repo.download.nvidia.com/baseos/ubuntu/noble/arm64/dgx-repo-files.tgz
+    | tar xzf - -C / ./usr/share/keyrings ./etc/apt/preferences.d
+  args:
+    creates: /usr/share/keyrings/dgx_debian_prod.gpg
+  changed_when: false
+
+# The dgx-repo-files.tgz sources entry points at the broken `baseos/8` URL.
+# Write the working .sources files directly instead, matching what the GX10s run
+# in production. This matches the split layout and avoids the broken tgz path.
 - name: Fix NVIDIA DGX repo source to the working guide URL
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/dgx.sources
