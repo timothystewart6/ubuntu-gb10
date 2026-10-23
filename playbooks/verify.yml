@@ -34,6 +34,19 @@
         fail_msg: "Expected nvidia HWE kernel, got {{ ansible_facts['kernel'] }}"
         success_msg: "Kernel: {{ ansible_facts['kernel'] }}"
 
+    - name: List generated locales
+      ansible.builtin.command: locale -a
+      environment:
+        LC_ALL: C.UTF-8
+      register: generated_locales
+      changed_when: false
+
+    - name: Assert en_US.UTF-8 is available to SSH clients
+      ansible.builtin.assert:
+        that: "'en_us.utf8' in (generated_locales.stdout_lines | map('lower') | list)"
+        fail_msg: "en_US.UTF-8 is unavailable; run site.yml --tags base."
+        success_msg: "en_US.UTF-8: available"
+
     # -------------------------------------------------------------------------
     # Secure Boot
     # -------------------------------------------------------------------------

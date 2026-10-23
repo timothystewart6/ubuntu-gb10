@@ -31,6 +31,18 @@
   ansible.builtin.apt:
     autoremove: yes
 
+- name: Install locale support
+  ansible.builtin.apt:
+    name: locales
+    state: present
+
+- name: Enable en_US.UTF-8
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#? *en_US[.]UTF-8 +UTF-8 *$'
+    line: 'en_US.UTF-8 UTF-8'
+  notify: regenerate locales
+
 - name: Install fwupd
   ansible.builtin.apt:
     name: fwupd
