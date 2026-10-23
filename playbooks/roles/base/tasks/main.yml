@@ -31,6 +31,207 @@
   ansible.builtin.apt:
     autoremove: yes
 
+- name: Install UTF-8 locale support for minimized Ubuntu
+  ansible.builtin.apt:
+    name: locales
+    state: present
+
+- name: Enable en_US.UTF-8 for SSH clients
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#?\s*en_US\.UTF-8\s+UTF-8\s*  ansible.builtin.apt:
+    name: fwupd
+    state: present
+
+- name: Refresh fwupd metadata
+  ansible.builtin.command: fwupdmgr refresh --force
+  changed_when: false
+  failed_when: false
+
+- name: Disable Wi-Fi via udev rule
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-disable-wifi.rules
+    content: 'SUBSYSTEM=="net", ACTION=="add", KERNEL=="wlP9s9", RUN+="/sbin/ip link set %k down"\n'
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Bring Wi-Fi interface down immediately
+  ansible.builtin.command: ip link set wlP9s9 down
+  changed_when: false
+  failed_when: false
+
+- name: Disable swap - on UMA systems swap + GPU DMA causes hard lockups (NVIDIA recommendation)
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+  failed_when: false
+
+- name: Disable swap in fstab (persist across reboots)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\bswap\b.*)$'
+    replace: '#\1'
+
+- name: Set vm.swappiness to 10
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "10"
+    sysctl_file: /etc/sysctl.d/99-gb10.conf
+    reload: yes
+
+- name: Fix networkd-wait-online - wait for any interface not all
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd-wait-online.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Fix networkd-wait-online - write --any override
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any
+    owner: root
+    group: root
+    mode: '0644'
+  notify: systemd daemon-reload
+
+- name: Set required kernel parameters for PCIe/GPU stability
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="console=tty0 pcie_port_pm=off initcall_blacklist=tegra234_cbb_init pci=pcie_bus_safe"'
+  notify: update grub
+
+- name: Enable persistent systemd journal (survives reboots/crashes)
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: '^#?Storage='
+    line: 'Storage=persistent'
+  notify: restart journald
+
+# The GB10/GX10 firmware arms the ARM SBSA generic watchdog at boot (~20 min,
+# 2-stage) and expects the OS to take ownership of it. Stock Ubuntu does NOT
+# load sbsa_gwdt by default, so the watchdog fires on schedule and hard-resets
+# the box every ~20 min - even completely idle.
+#
+# Why this is hard to fix:
+# Both linux-hwe and linux-nvidia-hwe kernel packages ship per-kernel blacklist
+# files: /usr/lib/modprobe.d/blacklist_linux-hwe-<ver>_<uname-r>.conf containing
+# "blacklist sbsa_gwdt". There are TWO separate failure modes:
+#
+#   1. systemd-modules-load.service: uses the libkmod API
+#      (kmod_module_probe_insert_module) which enforces blacklists even for
+#      explicit module names. So /etc/modules-load.d/sbsa_gwdt.conf is silently
+#      skipped every boot with "deny-listed (by kmod)".
+#
+#   2. initramfs conf/modules approach: update-initramfs bundles the
+#      /usr/lib/modprobe.d/blacklist files INTO the initramfs image. When the
+#      initramfs init script calls modprobe for modules listed in conf/modules,
+#      the bundled blacklist blocks the load before any real OS userspace starts.
+#
+# Solution - two layers:
+#
+#   A. initramfs init-premount script using insmod (not modprobe). insmod loads
+#      a .ko directly and bypasses ALL kmod configuration including blacklists.
+#      The module is already included in the initramfs image via the modules
+#      lineinfile task below; the init-premount script just loads it with insmod.
+#
+#   B. systemd sbsa-watchdog-load.service: runs the modprobe BINARY (not the
+#      libkmod API). The modprobe binary treats "blacklist" as a soft blacklist
+#      for explicit module name loads and bypasses it. Confirmed: sudo modprobe
+#      sbsa_gwdt succeeds even when the blacklist file exists. This service is
+#      the post-initramfs fallback for any boot where the initramfs script fails.
+#
+# Both survive kernel updates: initramfs-tools rebuilds on every kernel install
+# and pulls in both the modules list and the hook/scripts from /etc/initramfs-tools/.
+# The systemd service is persistent in /etc/systemd/system/ and not owned by any
+# kernel package.
+# Ref: docs/01-ubuntu-install.md - Step 6
+- name: Include SBSA watchdog module in initramfs image
+  ansible.builtin.lineinfile:
+    path: /etc/initramfs-tools/modules
+    line: "sbsa_gwdt  # SBSA watchdog - include in initramfs; loaded via init-premount insmod"
+    create: yes
+  notify: update initramfs
+
+- name: Load SBSA watchdog in initramfs via insmod (bypasses bundled kmod blacklist)
+  ansible.builtin.copy:
+    dest: /etc/initramfs-tools/scripts/init-premount/sbsa_gwdt
+    content: |
+      #!/bin/sh
+      PREREQ=""
+      prereqs() { echo "$PREREQ"; }
+      case $1 in prereqs) prereqs; exit 0;; esac
+
+      # insmod bypasses all kmod blacklists. modprobe in the initramfs sees the
+      # linux-hwe/linux-nvidia-hwe blacklist bundled inside the initramfs image
+      # and refuses to load sbsa_gwdt. insmod has no such restriction.
+      # The GB10/GX10 firmware SBSA watchdog fires at ~20 min if unserviced.
+      ko=$(find /usr/lib/modules/$(uname -r)/kernel/drivers/watchdog/ \
+           -name 'sbsa_gwdt.ko*' 2>/dev/null | head -1)
+      [ -n "$ko" ] && insmod "$ko" 2>/dev/null || true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: update initramfs
+
+- name: Create sbsa-watchdog-load systemd service (post-initramfs fallback using modprobe binary)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sbsa-watchdog-load.service
+    content: |
+      [Unit]
+      Description=Load SBSA watchdog driver (bypass linux-hwe kernel package blacklist)
+      Documentation=https://github.com/timothystewart6/ubuntu-gb10
+
+      [Service]
+      Type=oneshot
+      # Use modprobe binary directly - it treats "blacklist" as a soft blacklist
+      # for explicit module-name loads and bypasses it. libkmod API (used by
+      # systemd-modules-load) enforces it strictly. This is why we need a separate
+      # service rather than relying on /etc/modules-load.d/sbsa_gwdt.conf.
+      # NOTE: Before=/After= ordering against basic.target causes a systemd cycle
+      # and the job gets dropped. WantedBy=multi-user.target is sufficient - the
+      # system reaches multi-user well within the 20-min firmware watchdog window.
+      ExecStart=/sbin/modprobe sbsa_gwdt
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+  notify: systemd daemon-reload
+
+- name: Enable sbsa-watchdog-load service
+  ansible.builtin.systemd:
+    name: sbsa-watchdog-load.service
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Load SBSA generic watchdog driver now (provisioning-time immediate load)
+  ansible.builtin.command: modprobe sbsa_gwdt
+  changed_when: false
+  failed_when: false
+
+- name: Check for available firmware updates
+  ansible.builtin.command: fwupdmgr get-updates
+  register: fwupd_check
+  changed_when: false
+  failed_when: false
+
+- name: Apply firmware updates
+  ansible.builtin.command: fwupdmgr update --no-reboot-check
+  when: "'No updates available' not in fwupd_check.stdout"
+  notify: reboot for firmware
+
+    line: 'en_US.UTF-8 UTF-8'
+  notify: regenerate locales
+
 - name: Install fwupd
   ansible.builtin.apt:
     name: fwupd
