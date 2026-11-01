@@ -268,6 +268,20 @@ sudo apt purge -y unattended-upgrades
 `upgrade` skips. Purging `unattended-upgrades` prevents surprise kernel or
 driver updates mid-session.
 
+### Restore UTF-8 SSH locale support
+
+Minimal Ubuntu omits the `locales` package. SSH clients can forward an
+`en_US.UTF-8` locale that has not been generated on the server.
+
+```bash
+sudo apt install -y locales
+sudo sed -i 's/^# *en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/' /etc/locale.gen
+sudo locale-gen
+locale -a
+```
+
+The Ansible base role handles this automatically.
+
 ### Grant passwordless sudo (recommended for automation)
 
 Required if you intend to run commands remotely without a TTY:

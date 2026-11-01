@@ -1,4 +1,9 @@
 ---
+- name: regenerate locales
+  ansible.builtin.command: locale-gen
+  environment:
+    LC_ALL: C.UTF-8
+
 - name: reboot for firmware
   ansible.builtin.reboot:
     reboot_timeout: 300
